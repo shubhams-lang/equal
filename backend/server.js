@@ -10,7 +10,9 @@ const app = express();
 // This explicitly allows your Vercel domain and handles "Preflight" requests
 // which prevents the "Local Network Access" popup.
 app.use(cors({
-  origin: "https://anonymous-chat-aqjopwa21-shubhams-3890s-projects.vercel.app",
+  // Setting origin to true tells CORS to reflect the request origin
+  // This handles the Vercel hash URLs automatically
+  origin: true, 
   methods: ["GET", "POST", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
@@ -18,19 +20,14 @@ app.use(cors({
 
 app.use(express.json());
 
-const server = http.createServer(app);
-
-// --- 2. FIXED SOCKET.IO CORS ---
-const io = new Server(server, {
-  cors: { 
-    origin: "https://anonymous-chat-aqjopwa21-shubhams-3890s-projects.vercel.app", 
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-  // We allow both, but forcing 'websocket' on the frontend is recommended
-  transports: ["websocket", "polling"] 
+// Add this middleware right after cors to double-check preflights
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Private-Network", "true");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
 });
-
 let rooms = {}; 
 
 // --- ROUTES ---
