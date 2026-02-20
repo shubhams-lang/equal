@@ -18,17 +18,15 @@ export const ChatProvider = ({ children }) => {
   });
 
   // Initialize socket
-  const [socket] = useState(() =>
-    io("https://equal.onrender.com", {
-      /* REMOVE transports: ["websocket"] */
-      autoConnect: true,
-      reconnection: true,
-      reconnectionAttempts: Infinity,
-      reconnectionDelay: 1000,
-      // Add this to help with cross-origin security
-      withCredentials: false 
-    })
-  );
+  const socketRef = useRef(null);
+
+if (!socketRef.current) {
+  socketRef.current = io("https://equal.onrender.com", {
+    // Remove transports: ["websocket"] to avoid forced upgrade blocks
+    withCredentials: false
+  });
+}
+const socket = socketRef.current;
 
   useEffect(() => {
     // Auto-join default room
