@@ -10,7 +10,7 @@ import WordScramble from "./components/Games/WordScramble";
 
 function App() {
   const { messages, roomId, setRoomId, users, username, socket } = useContext(ChatContext);
-  
+
   const [view, setView] = useState("landing");
   const [activeGame, setActiveGame] = useState(null);
   const [roomInput, setRoomInput] = useState("");
@@ -31,9 +31,11 @@ function App() {
     { id: "word", name: "Scramble", icon: "🔠", Component: WordScramble },
   ];
 
+  const API_URL = "https://equal.onrender.com"; // Render backend
+
   useEffect(() => {
     if (!socket) return;
-    
+
     // Listen for 1v1 Challenges
     socket.on("receive-game-invite", (data) => {
       if (data.targetUser === username) {
@@ -54,41 +56,49 @@ function App() {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // --- ROOM HANDLERS ---
   const handleCreateRoom = async () => {
     try {
-      const res = await fetch("http://localhost:5000/create-room", { 
+      const res = await fetch(`${API_URL}/create-room`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(roomSettings)
+        body: JSON.stringify(roomSettings),
       });
       const data = await res.json();
       setRoomId(data.roomId);
       setView("summary");
-    } catch (err) { console.error("Failed to create room", err); }
+    } catch (err) {
+      console.error("Failed to create room", err);
+    }
   };
 
   const handleJoinRoom = async (code) => {
     const targetCode = code || roomInput;
     if (!targetCode) return;
+
     try {
-      const res = await fetch(`http://localhost:5000/room/${targetCode}`);
+      const res = await fetch(`${API_URL}/room/${targetCode}`);
       const data = await res.json();
+
       if (data.exists) {
         setRoomId(targetCode);
         socket.emit("join-room", { roomId: targetCode, username });
         setView("chat");
         window.history.replaceState({}, "", "/");
       } else alert("Room not found");
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      console.error("Join error:", err);
+    }
   };
 
+  // --- CHAT HANDLERS ---
   const sendMessage = () => {
     if (!msgInput.trim()) return;
     socket.emit("send-message", { roomId, message: msgInput, username });
     setMsgInput("");
   };
 
-  // 1v1 Actions
+  // --- 1v1 GAME HANDLERS ---
   const sendInvite = (gameId) => {
     if (!opponent) return alert("Select an opponent first!");
     setActiveGame(gameId);
@@ -106,7 +116,7 @@ function App() {
 
   return (
     <div className="h-screen bg-[#0e1621] text-white font-sans flex flex-col overflow-hidden selection:bg-[#2481cc]/30">
-      
+
       {/* 1v1 INVITE POPUP */}
       {pendingInvite && (
         <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] bg-[#17212b] border-2 border-[#2481cc] p-4 rounded-2xl shadow-2xl animate-bounce">
@@ -183,9 +193,12 @@ function App() {
       {/* PHASE 4: CHAT ROOM */}
       {view === "chat" && (
         <div className="flex flex-col h-full max-w-5xl mx-auto w-full bg-[#0e1621] relative shadow-2xl">
+          {/* Chat Header */}
           <div className="bg-[#17212b]/95 backdrop-blur-md h-16 flex items-center px-4 justify-between border-b border-black/20 z-20">
             <div className="flex items-center gap-3">
-              <button onClick={() => setView("landing")} className="p-2 hover:bg-white/5 rounded-full text-gray-400"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg></button>
+              <button onClick={() => setView("landing")} className="p-2 hover:bg-white/5 rounded-full text-gray-400">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg>
+              </button>
               <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2aabee] to-[#2481cc] flex items-center justify-center font-bold">{roomSettings.name?.charAt(0).toUpperCase() || "R"}</div>
               <div>
                 <h3 className="font-bold text-[15px]">{roomSettings.name || `Room ${roomId}`}</h3>
@@ -193,11 +206,20 @@ function App() {
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setView("games")} className="p-2 text-orange-400 hover:bg-orange-400/10 rounded-full transition"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21,6H3C1.9,6,1,6.9,1,8v8c0,1.1,0.9,2,2,2h18c1.1,0,2-0.9,2-2V8C23,6.9,22.1,6,21,6z M10,13.5c0,0.8-0.7,1.5-1.5,1.5 S7,14.3,7,13.5V13H6.5C5.7,13,5,12.3,5,11.5S5.7,10,6.5,10H7v-0.5C7,8.7,7.7,8,8.5,8S10,8.7,10,9.5V10h0.5 c0.8,0,1.5,0.7,1.5,1.5S11.3,13,10.5,13H10V13.5z"/></svg></button>
-              <button onClick={() => navigator.clipboard.writeText(inviteLink)} className="p-2 text-gray-400 hover:text-white"><svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg></button>
+              <button onClick={() => setView("games")} className="p-2 text-orange-400 hover:bg-orange-400/10 rounded-full transition">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
+                  <path d="M21,6H3C1.9,6,1,6.9,1,8v8c0,1.1,0.9,2,2,2h18c1.1,0,2-0.9,2-2V8C23,6.9,22.1,6,21,6z M10,13.5c0,0.8-0.7,1.5-1.5,1.5 S7,14.3,7,13.5V13H6.5C5.7,13,5,12.3,5,11.5S5.7,10,6.5,10H7v-0.5C7,8.7,7.7,8,8.5,8S10,8.7,10,9.5V10h0.5 c0.8,0,1.5,0.7,1.5,1.5S11.3,13,10.5,13H10V13.5z"/>
+                </svg>
+              </button>
+              <button onClick={() => navigator.clipboard.writeText(inviteLink)} className="p-2 text-gray-400 hover:text-white">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                  <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
+                </svg>
+              </button>
             </div>
           </div>
 
+          {/* CHAT MESSAGES */}
           <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0e1621] custom-scrollbar" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/carbon-fibre.png')`, backgroundBlendMode: 'soft-light' }}>
             {messages.map((m, i) => {
               const isMe = m.username === username;
@@ -216,10 +238,12 @@ function App() {
             <div ref={scrollRef} />
           </div>
 
+          {/* CHAT INPUT */}
           <div className="bg-[#17212b] p-3 flex items-center gap-2 border-t border-black/10">
-            <button className="p-2 text-gray-500 hover:text-[#2481cc]"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M16.5,6V17.5A4,4 0 0,1 12.5,21.5A4,4 0 0,1 8.5,17.5V5A2.5,2.5 0 0,1 11,2.5A2.5,2.5 0 0,1 13.5,5V15.5A1,1 0 0,1 12.5,16.5A1,1 0 0,1 11.5,15.5V6H10V15.5A2.5,2.5 0 0,0 12.5,18A2.5,2.5 0 0,0 15,15.5V5A4,4 0 0,0 11,1A4,4 0 0,0 7,5V17.5A5.5,5.5 0 0,0 12.5,23A5.5,5.5 0 0,0 18,17.5V6H16.5Z" /></svg></button>
             <input value={msgInput} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMessage()} placeholder="Message" className="flex-1 bg-transparent px-2 outline-none text-[16px]" />
-            <button onClick={sendMessage} className="text-[#2481cc] p-2"><svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg></button>
+            <button onClick={sendMessage} className="text-[#2481cc] p-2">
+              <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
+            </button>
           </div>
         </div>
       )}
@@ -286,7 +310,7 @@ function App() {
                         socket={socket} 
                         roomId={roomId} 
                         username={username} 
-                        opponent={opponent} // Passing opponent prop to games
+                        opponent={opponent} 
                       />
                     )
                   ))}
