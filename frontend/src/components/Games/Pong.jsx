@@ -2,8 +2,9 @@ import { useRef, useEffect, useState } from "react";
 
 export default function Pong({ socket, roomId, username, opponent }) {
   const canvasRef = useRef(null);
+  const [score, setScore] = useState({ me: 0, opponent: 0 });
+  const [winner, setWinner] = useState(null);
   
-  // State for both paddles and the ball
   const [gameState, setGameState] = useState({
     myPaddleY: 75,
     opponentPaddleY: 75,
@@ -13,29 +14,37 @@ export default function Pong({ socket, roomId, username, opponent }) {
     ballVY: 2,
   });
 
-  // Determine who "owns" the ball physics (the first person alphabetically)
   const isHost = username < opponent;
+  const WINNING_SCORE = 5;
 
   useEffect(() => {
-    // 1. LISTEN for updates from the opponent
     socket.on("game-state-update", (payload) => {
-      if (payload.game === "Pong" && payload.sender === opponent) {
-        setGameState((prev) => ({
-          ...prev,
-          opponentPaddleY: payload.paddleY,
-          // If I'm not the host, I accept the ball position from the host
-          ...( !isHost && { 
-            ballX: 300 - payload.ballX, // Mirror X for perspective
-            ballY: payload.ballY,
-          }),
-        }));
+      if (payload.game !== "Pong" || payload.sender !== opponent) return;
+
+      // Listen for score updates and win triggers from the host
+      if (payload.type === "POINT") {
+        setScore({ me: payload.oppScore, opponent: payload.myScore });
       }
+      if (payload.type === "WINNER") {
+        setWinner(payload.winner === username ? "YOU WIN! 🏆" : `${opponent} WINS! 💀`);
+      }
+
+      setGameState((prev) => ({
+        ...prev,
+        opponentPaddleY: payload.paddleY,
+        ...(!isHost && { 
+          ballX: 300 - payload.ballX, 
+          ballY: payload.ballY,
+        }),
+      }));
     });
 
     return () => socket.off("game-state-update");
-  }, [socket, opponent, isHost]);
+  }, [socket, opponent, isHost, username]);
 
   useEffect(() => {
+    if (winner) return; // Stop the loop if someone won
+
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
 
@@ -43,52 +52,66 @@ export default function Pong({ socket, roomId, username, opponent }) {
       setGameState((prev) => {
         let { myPaddleY, opponentPaddleY, ballX, ballY, ballVX, ballVY } = prev;
 
-        // ONLY the host calculates ball movement
         if (isHost) {
           ballX += ballVX;
           ballY += ballVY;
 
-          // Wall Collisions
           if (ballY < 5 || ballY > 195) ballVY *= -1;
 
-          // Paddle Collisions (Left = Me, Right = Opponent)
-          if (ballX < 20 && ballY > myPaddleY && ballY < myPaddleY + 50) ballVX = Math.abs(ballVX);
-          if (ballX > 280 && ballY > opponentPaddleY && ballY < opponentPaddleY + 50) ballVX = -Math.abs(ballVX);
-          
-          // Reset if out of bounds
-          if (ballX < 0 || ballX > 300) { ballX = 150; ballY = 100; }
+          // Paddle Collisions
+          if (ballX < 20 && ballY > myPaddleY && ballY < myPaddleY + 50) ballVX = Math.abs(ballVX) * 1.05; // Speed up
+          if (ballX > 280 && ballY > opponentPaddleY && ballY < opponentPaddleY + 50) ballVX = -Math.abs(ballVX) * 1.05;
+
+          // Scoring Detection (Only Host manages this)
+          if (ballX < 0 || ballX > 300) {
+            const scoredOnMe = ballX < 0;
+            const newScore = {
+              me: scoredOnMe ? score.me : score.me + 1,
+              opponent: scoredOnMe ? score.opponent + 1 : score.opponent
+            };
+            
+            setScore(newScore);
+            
+            // Check for Win
+            if (newScore.me >= WINNING_SCORE || newScore.opponent >= WINNING_SCORE) {
+              const finalWinner = newScore.me >= WINNING_SCORE ? username : opponent;
+              socket.emit("game-state-sync", {
+                roomId,
+                payload: { game: "Pong", type: "WINNER", winner: finalWinner, sender: username }
+              });
+              setWinner(finalWinner === username ? "YOU WIN! 🏆" : `${opponent} WINS! 💀`);
+            } else {
+              // Notify opponent of score change
+              socket.emit("game-state-sync", {
+                roomId,
+                payload: { game: "Pong", type: "POINT", myScore: newScore.me, oppScore: newScore.opponent, sender: username }
+              });
+            }
+
+            ballX = 150; ballY = 100; ballVX = 3 * (scoredOnMe ? 1 : -1);
+          }
         }
 
-        // DRAWING
+        // --- RENDER ---
         ctx.fillStyle = "#0e1621";
         ctx.fillRect(0, 0, 300, 200);
         
-        // Center Line
         ctx.strokeStyle = "rgba(255,255,255,0.1)";
         ctx.setLineDash([5, 5]);
         ctx.beginPath(); ctx.moveTo(150,0); ctx.lineTo(150,200); ctx.stroke();
 
-        // Paddles
-        ctx.fillStyle = "#2481cc"; // My Paddle (Left)
-        ctx.fillRect(10, myPaddleY, 8, 50);
-        
-        ctx.fillStyle = "#ef4444"; // Opponent (Right)
-        ctx.fillRect(282, opponentPaddleY, 8, 50);
+        ctx.fillStyle = "#2481cc"; ctx.fillRect(10, myPaddleY, 8, 50);
+        ctx.fillStyle = "#ef4444"; ctx.fillRect(282, opponentPaddleY, 8, 50);
+        ctx.fillStyle = "#fff"; ctx.beginPath(); ctx.arc(ballX, ballY, 4, 0, Math.PI * 2); ctx.fill();
 
-        // Ball
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(ballX, ballY, 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        // SYNC TO SERVER
+        // Sync paddle and ball position
         socket.emit("game-state-sync", {
           roomId,
           payload: {
             game: "Pong",
             sender: username,
             paddleY: myPaddleY,
-            ...(isHost && { ballX, ballY }) // Only host sends ball data
+            ...(isHost && { ballX, ballY })
           }
         });
 
@@ -96,24 +119,45 @@ export default function Pong({ socket, roomId, username, opponent }) {
       });
     };
 
-    const interval = setInterval(update, 1000 / 60); // 60 FPS
+    const interval = setInterval(update, 1000 / 60);
     return () => clearInterval(interval);
-  }, [isHost, socket, roomId, username]);
+  }, [isHost, socket, roomId, username, score, winner, opponent]);
 
-  // Handle Mouse Movement
   const handleMouseMove = (e) => {
+    if (winner) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const relativeY = e.clientY - rect.top - 25; // Center paddle on cursor
+    const relativeY = e.clientY - rect.top - 25;
     setGameState(prev => ({ ...prev, myPaddleY: Math.max(0, Math.min(150, relativeY)) }));
   };
 
   return (
-    <canvas
-      ref={canvasRef}
-      onMouseMove={handleMouseMove}
-      width={300}
-      height={200}
-      className="rounded-xl cursor-none border border-white/10 shadow-2xl"
-    />
+    <div className="relative flex flex-col items-center">
+      {/* Scoreboard */}
+      <div className="flex justify-between w-full px-4 mb-2 font-black text-xl italic">
+        <span className="text-[#2481cc]">{score.me}</span>
+        <span className="text-white/20">VS</span>
+        <span className="text-red-500">{score.opponent}</span>
+      </div>
+
+      <canvas
+        ref={canvasRef}
+        onMouseMove={handleMouseMove}
+        width={300}
+        height={200}
+        className="rounded-xl cursor-none border border-white/10 shadow-2xl"
+      />
+
+      {winner && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 rounded-xl backdrop-blur-sm">
+          <h2 className="text-2xl font-black text-white mb-4 animate-bounce">{winner}</h2>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-[#2481cc] text-white rounded-lg text-sm font-bold"
+          >
+            PLAY AGAIN
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
