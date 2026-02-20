@@ -1,129 +1,132 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from 'react';
+import { ChatContext } from '../../context/ChatContext';
 
-// A mini-dictionary to keep the game fast and offline-capable
-const VALID_WORDS = ["REACT", "REACTIVE", "ACTION", "TRACE", "CARE", "RACE", "ICE", "TEA", "EAT", "RATE", "CORE", "CREATIVE"];
+// --- GAME OVER OVERLAY ---
+const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username, correctWord }) => {
+  const isMe = winner === username;
+  return (
+    <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
+      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-2xl ${isMe ? 'bg-yellow-500 animate-pulse' : 'bg-gray-700'}`}>
+        <span className="text-4xl">{isMe ? "🧠" : "📉"}</span>
+      </div>
+      <h2 className={`text-3xl font-black italic tracking-tighter mb-1 ${isMe ? 'text-yellow-500' : 'text-red-500'}`}>
+        {isMe ? "BRAINY WIN!" : "OUTSMARTED"}
+      </h2>
+      <p className="text-white/60 text-xs font-bold mb-6">
+        The word was: <span className="text-white tracking-widest">{correctWord}</span>
+      </p>
 
-export default function WordScramble({ socket, roomId, username, opponent }) {
-  const [letters, setLetters] = useState([]);
+      <div className="flex gap-8 mb-8 bg-black/40 px-6 py-3 rounded-2xl border border-white/5">
+        <div>
+          <p className="text-[8px] text-gray-500 font-black">YOU</p>
+          <p className="text-xl font-black">{scores[username] || 0}</p>
+        </div>
+        <div className="w-px h-8 bg-white/10 self-center" />
+        <div>
+          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent}</p>
+          <p className="text-xl font-black">{scores[opponent] || 0}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-col w-full gap-3">
+        <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+          New Word
+        </button>
+        <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400">
+          Quit
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// --- MAIN WORD SCRAMBLE COMPONENT ---
+export default function WordScramble() {
+  const { socket, roomId, username, opponent, updateScore, scores, sendRematchRequest, closeGame } = useContext(ChatContext);
+  
+  const [targetWord, setTargetWord] = useState("");
+  const [scrambled, setScrambled] = useState("");
   const [input, setInput] = useState("");
-  const [myScore, setMyScore] = useState(0);
-  const [oppScore, setOppScore] = useState(0);
   const [winner, setWinner] = useState(null);
-  const [feedback, setFeedback] = useState(""); // For "Invalid Word" messages
 
-  const isHost = username < opponent;
-  const WINNING_SCORE = 30;
+  const words = ["GALAXY", "ROCKET", "BATTLE", "PYTHON", "CHROME", "SERVER", "MOBILE", "HIDDEN", "STRIKE", "MASTER"];
 
   useEffect(() => {
-    if (isHost) {
-      const sourceWord = "REACTIVE";
-      const scrambled = sourceWord.split("").sort(() => Math.random() - 0.5);
-      setLetters(scrambled);
-      socket.emit("game-state-sync", {
-        roomId,
-        payload: { game: "WordScramble", type: "START", letters: scrambled, sender: username }
-      });
+    // Host picks and scrambles the word
+    if (username < opponent) {
+      const randomWord = words[Math.floor(Math.random() * words.length)];
+      const sc = randomWord.split('').sort(() => Math.random() - 0.5).join('');
+      socket.emit('game-data', { roomId, type: 'SCRAMBLE_INIT', word: randomWord, scrambled: sc });
+      setTargetWord(randomWord);
+      setScrambled(sc);
     }
 
-    socket.on("game-state-update", (payload) => {
-      if (payload.game !== "WordScramble" || payload.sender !== opponent) return;
-      if (payload.type === "START") setLetters(payload.letters);
-      if (payload.type === "SCORE") {
-        setOppScore(payload.score);
-        if (payload.score >= WINNING_SCORE) setWinner(opponent);
+    const socketListener = (data) => {
+      if (data.type === 'SCRAMBLE_INIT') {
+        setTargetWord(data.word);
+        setScrambled(data.scrambled);
       }
-    });
+      if (data.type === 'SCRAMBLE_WIN') {
+        setWinner(data.winner);
+      }
+    };
 
-    return () => socket.off("game-state-update");
-  }, [socket, opponent, isHost, roomId, username]);
+    socket.on('game-data', socketListener);
+    return () => socket.off('game-data', socketListener);
+  }, [socket, roomId]);
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const word = input.trim().toUpperCase();
+  const handleInput = (val) => {
+    const entry = val.toUpperCase();
+    setInput(entry);
 
-    // Dictionary Validation
-    if (!VALID_WORDS.includes(word)) {
-      setFeedback("❌ NOT A WORD");
-      setTimeout(() => setFeedback(""), 1000);
-      setInput("");
-      return;
+    if (entry === targetWord && targetWord !== "") {
+      socket.emit('game-data', { roomId, type: 'SCRAMBLE_WIN', winner: username });
+      setWinner(username);
+      updateScore(username);
     }
-
-    if (word.length > 1 && !winner) {
-      const newScore = myScore + word.length;
-      setMyScore(newScore);
-      setFeedback("✅ + " + word.length);
-      setTimeout(() => setFeedback(""), 1000);
-
-      socket.emit("game-state-sync", {
-        roomId,
-        payload: { game: "WordScramble", type: "SCORE", sender: username, score: newScore }
-      });
-
-      if (newScore >= WINNING_SCORE) setWinner(username);
-    }
-    setInput("");
   };
 
   return (
-    <div className="bg-[#17212b] p-6 rounded-3xl w-full max-w-xs border border-white/10 shadow-2xl relative overflow-hidden">
-      {/* Score Header */}
-      <div className="flex justify-between items-center mb-6">
-        <div className="text-center">
-          <p className="text-[10px] text-blue-400 font-bold uppercase">You</p>
-          <p className="text-xl font-black text-white">{myScore}</p>
-        </div>
-        <div className="text-center">
-          <p className="text-[10px] text-red-400 font-bold uppercase">{opponent || "Wait"}</p>
-          <p className="text-xl font-black text-white">{oppScore}</p>
-        </div>
-      </div>
-
-      {/* Visual Feedback Overlay */}
-      <div className="h-6 text-center mb-2">
-        <span className={`text-xs font-bold transition-opacity ${feedback ? "opacity-100" : "opacity-0"} ${feedback.includes('❌') ? 'text-red-500' : 'text-green-400'}`}>
-          {feedback}
-        </span>
-      </div>
-
-      {/* Scrambled Tiles */}
-      <div className="bg-white/5 p-4 rounded-2xl mb-4">
-        <div className="flex justify-center gap-2 flex-wrap">
-          {letters.map((l, i) => (
-            <span key={i} className="w-9 h-9 flex items-center justify-center bg-[#2481cc] text-white font-black rounded-xl shadow-md transform hover:scale-110 transition-transform">
-              {l}
-            </span>
+    <div className="relative w-full h-full bg-[#0e1621] p-6 flex flex-col items-center justify-center overflow-hidden">
+      
+      <div className="text-center mb-8">
+        <p className="text-[10px] font-black text-[#2481cc] uppercase tracking-[0.3em] mb-2">Unscramble</p>
+        <div className="flex gap-2 justify-center">
+          {scrambled.split('').map((char, i) => (
+            <div key={i} className="w-10 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center">
+              <span className="text-xl font-black text-white">{char}</span>
+            </div>
           ))}
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-3">
+      <div className="w-full max-w-xs">
         <input 
-          value={input} 
-          onChange={e => setInput(e.target.value.toUpperCase())} 
-          placeholder="TYPE WORD..." 
-          disabled={!!winner}
-          className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-center font-bold text-white focus:border-[#2481cc] outline-none"
+          autoFocus
+          value={input}
+          onChange={(e) => handleInput(e.target.value)}
+          placeholder="TYPE GUESS..."
+          className={`
+            w-full bg-black/40 border-2 rounded-2xl p-4 text-center text-xl font-black tracking-widest outline-none transition-all
+            ${input.length > 0 && targetWord.startsWith(input) ? 'border-green-500/50 text-green-400' : 'border-white/10 text-white'}
+          `}
         />
-        <button 
-          type="submit"
-          disabled={!!winner}
-          className="w-full bg-[#2481cc] py-3 rounded-xl font-black text-white active:scale-95 shadow-lg disabled:bg-gray-700"
-        >
-          SUBMIT WORD
-        </button>
-      </form>
+        <div className="mt-4 flex justify-between px-2">
+            <p className="text-[8px] font-bold text-gray-600 uppercase">Opponent is guessing...</p>
+            <p className="text-[8px] font-bold text-gray-600 uppercase">{input.length} / {targetWord.length}</p>
+        </div>
+      </div>
 
       {winner && (
-        <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-4 text-center">
-          <p className="text-3xl mb-4">🏆</p>
-          <p className="font-black text-white text-xl mb-4">
-            {winner === username ? "YOU ARE THE WORD MASTER" : `${winner} DOMINATED`}
-          </p>
-          <button onClick={() => window.location.reload()} className="bg-white text-black px-6 py-2 rounded-full font-bold text-sm">
-            REMATCH
-          </button>
-        </div>
+        <GameOverOverlay 
+          winner={winner}
+          correctWord={targetWord}
+          username={username}
+          opponent={opponent}
+          scores={scores}
+          onRematch={sendRematchRequest}
+          onQuit={closeGame}
+        />
       )}
     </div>
   );

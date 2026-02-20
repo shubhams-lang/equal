@@ -7,9 +7,12 @@ export const ChatProvider = ({ children }) => {
   const [messages, setMessages] = useState([]);
   const [roomId, setRoomId] = useState(null);
   const [users, setUsers] = useState([]);
-  const [activeGame, setActiveGame] = useState(null); // Tracks the current game session
+  const [activeGame, setActiveGame] = useState(null);
+  const [pendingInvite, setPendingInvite] = useState(null);
+  const [scores, setScores] = useState({});
+  const [isOpponentTyping, setIsOpponentTyping] = useState(false);
 
-  // 1. Persistent Username Logic
+  // 1. Persistent Identity
   const [username] = useState(() => {
     const stored = localStorage.getItem("username");
     if (stored) return stored;
@@ -18,71 +21,143 @@ export const ChatProvider = ({ children }) => {
     return newName;
   });
 
-  // 2. Optimized Socket Initialization
-  // Using 'websocket' transport avoids the polling preflight errors (0.0 kB)
+  // 2. Socket Connection
   const socket = useMemo(() => 
     io("https://equal.onrender.com", {
       transports: ["websocket"],
       withCredentials: true,
       autoConnect: true,
-      reconnectionAttempts: 5,
     }), 
   []);
 
   useEffect(() => {
     if (!socket) return;
 
-    // Join room when roomId is set (after Create or Join)
     if (roomId) {
       socket.emit("join-room", { roomId, username });
     }
 
-    // --- SOCKET LISTENERS ---
-
-    // Updates user list and "Online" count
+    // --- GLOBAL LISTENERS ---
     socket.on("room-update", (data) => {
       if (data.users) setUsers(data.users);
       if (data.messages) setMessages(data.messages);
+      if (data.scores) setScores(data.scores);
     });
 
-    // Listens for chat messages
     socket.on("receive-message", (msg) => {
       setMessages((prev) => [...prev, msg]);
+      // When a message is received, the opponent has clearly stopped typing
+      setIsOpponentTyping(false);
     });
 
-    // Listens for Game Control (Start/Exit)
-    socket.on("game-state-update", (payload) => {
-      if (payload.type === "START_GAME") {
-        setActiveGame(payload.gameId);
+    socket.on("score-update", (newScores) => {
+      setScores(newScores);
+    });
+
+    // --- TYPING LISTENER ---
+    socket.on("display-typing", (data) => {
+      if (data.username !== username) {
+        setIsOpponentTyping(data.isTyping);
       }
+    });
+
+    // --- GAME ENGINE LISTENERS ---
+    socket.on("game-state-update", (payload) => {
+      if (payload.type === "GAME_REQUEST" || payload.type === "REMATCH_REQUEST") {
+        setPendingInvite({
+          ...payload,
+          isRematch: payload.type === "REMATCH_REQUEST"
+        }); 
+      }
+
+      if (payload.type === "GAME_ACCEPTED") {
+        setActiveGame(payload.gameId);
+        setPendingInvite(null); 
+      }
+
       if (payload.type === "EXIT_GAME") {
         setActiveGame(null);
+        setPendingInvite(null);
+      }
+      
+      if (payload.type === "GAME_DECLINED") {
+        setPendingInvite(null);
       }
     });
-
-    // Connection Debugging
-    socket.on("connect", () => console.log("✅ Socket Connected"));
-    socket.on("connect_error", (err) => console.error("❌ Socket Error:", err.message));
 
     return () => {
       socket.off("room-update");
       socket.off("receive-message");
       socket.off("game-state-update");
-      socket.off("connect");
-      socket.off("connect_error");
+      socket.off("score-update");
+      socket.off("display-typing");
     };
   }, [socket, roomId, username]);
 
-  // 3. Helper function to launch a game for both players
-  const launchGame = (gameId) => {
-    setActiveGame(gameId);
+  // --- TYPING ACTION ---
+  const setTypingStatus = (isTyping) => {
+    if (!roomId) return;
+    socket.emit("typing", { roomId, username, isTyping });
+  };
+
+  // --- MULTIMEDIA ACTIONS ---
+  const sendImage = (base64Str) => {
+    if (!roomId) return;
+    socket.emit("send-message", { 
+      roomId, 
+      username, 
+      type: "image", 
+      content: base64Str,
+      timestamp: new Date().toISOString()
+    });
+    setTypingStatus(false);
+  };
+
+  // --- SCOREBOARD ACTIONS ---
+  const updateScore = (winnerName) => {
+    const newScores = {
+      ...scores,
+      [winnerName]: (scores[winnerName] || 0) + 1
+    };
+    setScores(newScores);
+    socket.emit("sync-scores", { roomId, scores: newScores });
+  };
+
+  // --- GAME FLOW ACTIONS ---
+  const sendGameRequest = (gameId) => {
+    setPendingInvite({ gameId, sender: username, isSentByMe: true, isRematch: false });
     socket.emit("game-state-sync", {
       roomId,
-      payload: { type: "START_GAME", gameId, sender: username }
+      payload: { type: "GAME_REQUEST", gameId, sender: username }
     });
   };
 
-  // 4. Helper function to close the game for both players
+  const sendRematchRequest = () => {
+    if (!activeGame) return;
+    setPendingInvite({ gameId: activeGame, sender: username, isSentByMe: true, isRematch: true });
+    socket.emit("game-state-sync", {
+      roomId,
+      payload: { type: "REMATCH_REQUEST", gameId: activeGame, sender: username }
+    });
+  };
+
+  const acceptGameRequest = (gameId) => {
+    setActiveGame(gameId);
+    setPendingInvite(null);
+    socket.emit("game-state-sync", {
+      roomId,
+      payload: { type: "GAME_ACCEPTED", gameId, sender: username }
+    });
+  };
+
+  const declineGameRequest = () => {
+    setPendingInvite(null);
+    socket.emit("game-state-sync", {
+      roomId,
+      payload: { type: "GAME_DECLINED", sender: username }
+    });
+  };
+
   const closeGame = () => {
     setActiveGame(null);
     socket.emit("game-state-sync", {
@@ -95,15 +170,23 @@ export const ChatProvider = ({ children }) => {
     <ChatContext.Provider
       value={{
         messages,
-        setMessages,
         roomId,
         setRoomId,
         users,
         username,
         socket,
         activeGame,
-        setActiveGame,
-        launchGame,
+        pendingInvite,
+        setPendingInvite,
+        scores,
+        isOpponentTyping,
+        setTypingStatus,
+        updateScore,
+        sendImage,
+        sendGameRequest,
+        sendRematchRequest,
+        acceptGameRequest,
+        declineGameRequest,
         closeGame
       }}
     >

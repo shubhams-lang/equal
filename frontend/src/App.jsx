@@ -10,18 +10,13 @@ import WordScramble from "./components/Games/WordScramble";
 
 function App() {
   const { 
-    messages, 
-    roomId, 
-    setRoomId, 
-    users, 
-    username, 
-    socket, 
-    activeGame, 
-    launchGame, 
-    closeGame 
+    messages, roomId, setRoomId, users, username, socket, activeGame, 
+    pendingInvite, setPendingInvite, scores, updateScore, sendImage,
+    isOpponentTyping, setTypingStatus,
+    sendGameRequest, acceptGameRequest, declineGameRequest, closeGame 
   } = useContext(ChatContext);
 
-  // --- UI STATES (Preserving your structure) ---
+  // --- UI STATES ---
   const [view, setView] = useState("landing");
   const [roomInput, setRoomInput] = useState("");
   const [msgInput, setMsgInput] = useState("");
@@ -29,6 +24,8 @@ function App() {
   const [isWaking, setIsWaking] = useState(false);
 
   const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const GAMES = [
     { id: "Pong", name: "Pong", icon: "🏓", Component: Pong },
@@ -39,8 +36,6 @@ function App() {
   ];
 
   const API_URL = "https://equal.onrender.com"; 
-
-  // --- 1v1 LOGIC ---
   const opponent = users.find(u => u !== username);
   const isHost = opponent ? username < opponent : true;
 
@@ -53,34 +48,30 @@ function App() {
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isOpponentTyping]);
 
-  // SYNC VIEW WITH GAME STATE
-  // This ensures that when the host starts a game, the opponent's "view" also switches to "games"
   useEffect(() => {
-    if (activeGame) {
-      setView("games");
-    } else if (view === "games" && !activeGame) {
-      setView("chat");
-    }
+    if (activeGame) setView("games");
   }, [activeGame]);
 
-  // --- ROOM HANDLERS ---
-  const handleCreateRoom = async () => {
-    setIsWaking(true); 
-    try {
-      const res = await fetch(`${API_URL}/create-room`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(roomSettings),
-      });
-      const data = await res.json();
-      setRoomId(data.roomId);
-      setView("summary");
-    } catch (err) {
-      alert("Server is waking up... try again in 10 seconds.");
-    } finally {
-      setIsWaking(false);
+  // --- HANDLERS ---
+  const handleInputChange = (e) => {
+    setMsgInput(e.target.value);
+    
+    // Typing Logic: Send signal and clear after 2 seconds of no typing
+    setTypingStatus(true);
+    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      setTypingStatus(false);
+    }, 2000);
+  };
+
+  const handleImageUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => sendImage(reader.result);
+      reader.readAsDataURL(file);
     }
   };
 
@@ -91,24 +82,15 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/room/${targetCode}`);
       const data = await res.json();
-      if (data.exists) {
-        setRoomId(targetCode);
-        setView("chat");
-      } else {
-        alert("Invalid code.");
-      }
-    } catch (err) {
-      alert("Connection failed.");
-    } finally {
-      setIsWaking(false);
-    }
+      if (data.exists) { setRoomId(targetCode); setView("chat"); }
+    } catch (err) { alert("Server error."); } finally { setIsWaking(false); }
   };
 
-  // --- CHAT & GAME HANDLERS ---
   const sendMessage = () => {
     if (!msgInput.trim()) return;
-    socket.emit("send-message", { roomId, message: msgInput, username });
+    socket.emit("send-message", { roomId, message: msgInput, username, type: "text" });
     setMsgInput("");
+    setTypingStatus(false);
   };
 
   const inviteLink = `${window.location.origin}?join=${roomId}`;
@@ -116,162 +98,157 @@ function App() {
   return (
     <div className="h-screen bg-[#0e1621] text-white font-sans flex flex-col overflow-hidden">
       
+      {/* HANDSHAKE POPUP */}
+      {pendingInvite && !pendingInvite.isSentByMe && (
+        <div className="fixed top-6 left-4 right-4 z-[100] bg-[#17212b] border-2 border-[#2481cc] p-5 rounded-3xl shadow-2xl animate-in slide-in-from-top-10">
+          <div className="flex items-center gap-4 mb-4">
+            <div className="text-3xl">{pendingInvite.isRematch ? "🔄" : "🎮"}</div>
+            <div>
+              <p className="text-[10px] font-black text-[#2481cc] uppercase tracking-widest">{pendingInvite.isRematch ? "Rematch Request" : "Challenge"}</p>
+              <p className="text-sm font-bold">{pendingInvite.sender} wants to play {pendingInvite.gameId}!</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => acceptGameRequest(pendingInvite.gameId)} className="flex-1 bg-[#2481cc] py-3 rounded-xl font-black text-xs">ACCEPT</button>
+            <button onClick={declineGameRequest} className="flex-1 bg-white/5 py-3 rounded-xl font-black text-xs">DECLINE</button>
+          </div>
+        </div>
+      )}
+
       {/* VIEW: LANDING */}
       {view === "landing" && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
-          <div className="w-full max-w-sm text-center space-y-8">
-            <div className="space-y-4">
-              <div className="w-24 h-24 bg-gradient-to-tr from-[#2aabee] to-[#2481cc] rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl">
-                <span className="text-4xl">⚔️</span>
-              </div>
-              <h1 className="text-4xl font-black italic">BATTLE CHAT</h1>
-              <p className="text-gray-400">1v1 Real-time Gaming & Chat</p>
-            </div>
-            <div className="space-y-4">
-              <button 
-                onClick={() => setView("setup")} 
-                className="w-full bg-[#2481cc] py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all"
-              >
-                {isWaking ? "CONNECTING..." : "CREATE ROOM"}
-              </button>
-              <div className="bg-[#17212b] p-2 rounded-2xl flex gap-2 border border-white/5">
-                <input 
-                  value={roomInput} 
-                  onChange={(e) => setRoomInput(e.target.value)} 
-                  placeholder="Invite Code" 
-                  className="bg-transparent flex-1 px-4 outline-none uppercase font-mono text-sm" 
-                />
-                <button onClick={() => handleJoinRoom()} className="bg-[#2481cc] px-6 py-3 rounded-xl font-bold">JOIN</button>
-              </div>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
+          <div className="w-24 h-24 bg-[#2481cc] rounded-[2.5rem] flex items-center justify-center mx-auto mb-6 shadow-2xl">
+            <span className="text-4xl">⚔️</span>
+          </div>
+          <h1 className="text-4xl font-black italic mb-8 tracking-tighter">BATTLE CHAT</h1>
+          <div className="w-full max-w-xs space-y-4">
+            <button onClick={() => setView("setup")} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black shadow-lg">CREATE ROOM</button>
+            <div className="bg-[#17212b] p-2 rounded-2xl flex gap-2 border border-white/5">
+              <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="CODE" className="bg-transparent flex-1 px-4 outline-none uppercase font-mono text-sm" />
+              <button onClick={() => handleJoinRoom()} className="bg-[#2481cc] px-6 py-3 rounded-xl font-bold">JOIN</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* VIEW: SETUP */}
-      {view === "setup" && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <div className="w-full max-w-md bg-[#17212b] rounded-3xl p-8 border border-white/5">
-            <h2 className="text-2xl font-bold mb-6">Room Settings</h2>
-            <div className="space-y-6">
-              <input 
-                onChange={(e) => setRoomSettings({...roomSettings, name: e.target.value})} 
-                className="w-full bg-[#0e1621] border border-gray-700 rounded-xl p-4 outline-none focus:border-[#2481cc]" 
-                placeholder="Room Name" 
-              />
-              <button 
-                onClick={handleCreateRoom} 
-                className="w-full bg-[#2481cc] py-4 rounded-xl font-bold hover:brightness-110 active:scale-95 transition-all"
-              >
-                {isWaking ? "CREATING..." : "CREATE"}
-              </button>
-              <button onClick={() => setView("landing")} className="w-full text-gray-500 font-bold text-sm">BACK</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW: SUMMARY */}
-      {view === "summary" && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6">
-          <div className="w-full max-w-sm bg-[#17212b] rounded-3xl p-8 text-center border border-white/5">
-            <h2 className="text-2xl font-bold mb-4">Room Ready!</h2>
-            <div className="bg-[#0e1621] p-3 rounded-xl mb-6 flex items-center justify-between border border-gray-700">
-              <code className="text-[#64b5f6] font-mono text-[10px] truncate mr-2">{inviteLink}</code>
-              <button onClick={() => {navigator.clipboard.writeText(inviteLink); alert("Copied!")}} className="bg-[#2481cc] text-[10px] px-3 py-1.5 rounded-lg font-black">COPY</button>
-            </div>
-            <button onClick={() => { socket.emit("join-room", { roomId, username }); setView("chat"); }} className="w-full bg-[#2481cc] py-4 rounded-2xl font-bold shadow-lg">ENTER CHAT</button>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW: CHAT ROOM */}
-      {view === "chat" && (
-        <div className="flex flex-col h-full w-full bg-[#0e1621] relative">
-          <div className="bg-[#17212b] h-16 flex items-center px-4 justify-between border-b border-black/20">
+      {/* VIEW: CHAT & GAMES */}
+      {(view === "chat" || view === "games") && (
+        <>
+          <header className="bg-[#17212b] h-16 flex items-center px-4 justify-between border-b border-black/20">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-[#2481cc] flex items-center justify-center font-bold">
-                {roomSettings.name?.charAt(0).toUpperCase() || "R"}
-              </div>
+              <button onClick={() => setView(view === "chat" ? "games" : "chat")} className="text-xl">
+                {view === "chat" ? "🎮" : "💬"}
+              </button>
               <div>
-                <h3 className="font-bold text-sm">{roomSettings.name || `Room ${roomId}`}</h3>
-                <p className="text-[11px] text-[#64b5f6] font-bold">{users.length} ONLINE</p>
+                <h3 className="font-bold text-sm truncate w-20">{roomSettings.name || roomId}</h3>
+                <p className="text-[10px] text-[#2481cc] font-black">{users.length} ONLINE</p>
               </div>
             </div>
-            <button onClick={() => setView("games")} className="bg-orange-500/10 text-orange-500 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-wider">
-              Play Game 🎮
-            </button>
-          </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar">
-            {messages.map((m, i) => (
-              <div key={i} className={`flex ${m.username === username ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[80%] px-3 py-1.5 rounded-2xl ${m.username === username ? "bg-[#2b5278] rounded-tr-none" : "bg-[#182533] rounded-tl-none"}`}>
-                  {! (m.username === username) && <p className="text-[10px] font-black text-[#64b5f6] mb-0.5">{m.username}</p>}
-                  <p className="text-sm">{m.text}</p>
-                </div>
-              </div>
-            ))}
-            <div ref={scrollRef} />
-          </div>
-
-          <div className="bg-[#17212b] p-3 flex items-center gap-2 border-t border-black/10">
-            <input 
-              value={msgInput} 
-              onChange={(e) => setMsgInput(e.target.value)} 
-              onKeyDown={(e) => e.key === "Enter" && sendMessage()} 
-              placeholder="Message" 
-              className="flex-1 bg-transparent px-2 outline-none text-sm" 
-            />
-            <button onClick={sendMessage} className="text-[#2481cc] font-bold px-2">SEND</button>
-          </div>
-        </div>
-      )}
-
-      {/* VIEW: GAME CENTER */}
-      {view === "games" && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#0e1621]">
-          <div className="w-full max-w-md bg-[#17212b] rounded-3xl p-8 border border-white/5 shadow-2xl relative">
-            <button onClick={() => setView("chat")} className="absolute top-4 right-4 text-gray-500">✕</button>
-
-            {!activeGame ? (
+            {/* SCOREBOARD */}
+            <div className="flex items-center gap-4 bg-black/20 px-4 py-1.5 rounded-2xl border border-white/5">
               <div className="text-center">
-                <h2 className="text-2xl font-black mb-6 uppercase tracking-widest text-[#2481cc]">GAME LOBBY</h2>
-                <div className="grid grid-cols-2 gap-4">
-                  {GAMES.map((game) => (
-                    <button 
-                      key={game.id} 
-                      onClick={() => launchGame(game.id)} 
-                      disabled={!isHost || !opponent}
-                      className={`p-6 bg-[#0e1621] rounded-2xl border transition-all flex flex-col items-center gap-3 ${(!isHost || !opponent) ? 'opacity-30' : 'border-white/5 hover:border-[#2481cc] active:scale-95'}`}
-                    >
-                      <span className="text-4xl">{game.icon}</span>
-                      <span className="font-bold text-[10px] uppercase tracking-widest text-white">{game.name}</span>
-                      {!isHost && <span className="text-[7px] text-gray-600">WAITING FOR HOST</span>}
-                    </button>
-                  ))}
-                </div>
-                {!opponent && <p className="text-[10px] text-red-400 mt-6 font-bold animate-pulse">WAITING FOR SOMEONE TO JOIN...</p>}
+                <p className="text-[7px] font-black text-gray-500">YOU</p>
+                <p className="text-sm font-black text-[#2481cc]">{scores[username] || 0}</p>
               </div>
-            ) : (
-              <div className="flex flex-col items-center">
-                <div className="mb-4 text-[10px] font-black text-[#2481cc] uppercase tracking-widest">VS {opponent}</div>
-                <div className="w-full aspect-square bg-black/20 rounded-2xl mb-6 flex items-center justify-center border border-white/5">
-                  {GAMES.map(game => activeGame === game.id && (
-                    <game.Component 
-                      key={game.id} 
-                      socket={socket} 
-                      roomId={roomId} 
-                      username={username} 
-                      opponent={opponent} 
-                    />
-                  ))}
-                </div>
-                <button onClick={closeGame} className="text-[10px] font-black text-red-500 hover:underline uppercase">EXIT SESSION</button>
+              <div className="text-center">
+                <p className="text-[7px] font-black text-gray-500 uppercase">{opponent || '...'}</p>
+                <p className="text-sm font-black text-red-500">{scores[opponent] || 0}</p>
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </header>
+
+          {view === "chat" ? (
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                {messages.map((m, i) => (
+                  <div key={i} className={`flex ${m.username === username ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[75%] p-2 rounded-2xl shadow-lg ${m.username === username ? "bg-[#2b5278] rounded-tr-none" : "bg-[#182533] rounded-tl-none"}`}>
+                      {m.type === "image" ? (
+                        <img src={m.content} className="rounded-xl w-full max-h-60 object-cover" alt="media" />
+                      ) : (
+                        <p className="text-sm px-1">{m.message || m.text}</p>
+                      )}
+                      
+                      {/* READ RECEIPTS */}
+                      {m.username === username && (
+                        <div className="flex justify-end pr-1 mt-0.5">
+                          <span className={`text-[10px] leading-none ${users.length > 1 ? 'text-blue-400' : 'text-gray-500'}`}>
+                            ✓✓
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+                {/* TYPING INDICATOR */}
+                {isOpponentTyping && (
+                  <div className="flex justify-start">
+                    <div className="bg-[#182533] px-4 py-3 rounded-2xl rounded-tl-none">
+                      <div className="flex gap-1.5">
+                        <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce [animation-duration:0.8s]" />
+                        <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.2s]" />
+                        <div className="w-1.5 h-1.5 bg-gray-500 rounded-full animate-bounce [animation-duration:0.8s] [animation-delay:0.4s]" />
+                      </div>
+                    </div>
+                  </div>
+                )}
+                <div ref={scrollRef} />
+              </div>
+
+              {/* INPUT AREA */}
+              <div className="bg-[#17212b] p-3 flex items-center gap-3 border-t border-black/10">
+                <button onClick={() => fileInputRef.current.click()} className="text-xl opacity-60">🖼️</button>
+                <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" className="hidden" />
+                <input 
+                  value={msgInput} 
+                  onChange={handleInputChange} 
+                  onKeyDown={(e) => e.key === "Enter" && sendMessage()} 
+                  placeholder="Type message..." 
+                  className="flex-1 bg-transparent outline-none text-sm" 
+                />
+                <button onClick={sendMessage} className="text-[#2481cc] font-black px-2">SEND</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 p-6 overflow-y-auto">
+              {!activeGame ? (
+                <div className="max-w-md mx-auto">
+                   {pendingInvite?.isSentByMe ? (
+                    <div className="text-center p-12 border-2 border-dashed border-white/5 rounded-[3rem] animate-pulse">
+                      <p className="text-xs font-black uppercase text-gray-500">Waiting for {opponent}...</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4">
+                      {GAMES.map(g => (
+                        <button 
+                          key={g.id} 
+                          onClick={() => sendGameRequest(g.id)} 
+                          disabled={!isHost || !opponent}
+                          className={`p-6 bg-[#17212b] rounded-3xl border border-white/5 flex flex-col items-center gap-3 ${!isHost && 'opacity-20 grayscale'}`}
+                        >
+                          <span className="text-4xl">{g.icon}</span>
+                          <span className="text-[10px] font-black uppercase">{g.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="h-full flex flex-col items-center">
+                  <div className="w-full aspect-square bg-black/40 rounded-[2.5rem] border border-white/10 overflow-hidden">
+                    {GAMES.map(game => activeGame === game.id && (
+                      <game.Component key={game.id} socket={socket} roomId={roomId} username={username} opponent={opponent} updateScore={updateScore} />
+                    ))}
+                  </div>
+                  <button onClick={closeGame} className="mt-8 text-[10px] font-black text-red-500 uppercase tracking-widest">Quit Battle</button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
