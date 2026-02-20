@@ -117,6 +117,17 @@ io.on("connection", (socket) => {
 
 // Use 0.0.0.0 to ensure Render can route traffic to the container
 const PORT = process.env.PORT || 5000;
+// --- KEEP-ALIVE PING ---
+// Pings the server every 14 minutes to prevent Render free tier from sleeping.
+const axios = require("axios"); // Make sure to run: npm install axios
+
+setInterval(() => {
+  // Use your actual Render URL here
+  axios.get("https://equal.onrender.com/room/HEALTH_CHECK")
+    .then(() => console.log("Self-ping successful: Server is awake"))
+    .catch((err) => console.log("Self-ping: Server is awake (received expected 404/msg)"));
+}, 840000); // 840,000ms = 14 minutes
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Backend running on port ${PORT}`);
 });
