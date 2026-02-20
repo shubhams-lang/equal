@@ -11,13 +11,15 @@ import WordScramble from "./components/Games/WordScramble";
 function App() {
   const { messages, roomId, setRoomId, users, username, socket } = useContext(ChatContext);
 
+  // --- UI STATES ---
   const [view, setView] = useState("landing");
   const [activeGame, setActiveGame] = useState(null);
   const [roomInput, setRoomInput] = useState("");
   const [msgInput, setMsgInput] = useState("");
   const [roomSettings, setRoomSettings] = useState({ name: "", isEphemeral: true });
+  const [isWaking, setIsWaking] = useState(false); // New state for Render wake-up
 
-  // 1v1 States
+  // --- 1v1 STATES ---
   const [opponent, setOpponent] = useState(null);
   const [pendingInvite, setPendingInvite] = useState(null);
 
@@ -31,18 +33,14 @@ function App() {
     { id: "word", name: "Scramble", icon: "🔠", Component: WordScramble },
   ];
 
-  const API_URL = "https://equal.onrender.com"; // Render backend
+  const API_URL = "https://equal.onrender.com"; 
 
+  // --- EFFECTS ---
   useEffect(() => {
     if (!socket) return;
-
-    // Listen for 1v1 Challenges
     socket.on("receive-game-invite", (data) => {
-      if (data.targetUser === username) {
-        setPendingInvite(data);
-      }
+      if (data.targetUser === username) setPendingInvite(data);
     });
-
     return () => socket.off("receive-game-invite");
   }, [socket, username]);
 
@@ -58,26 +56,34 @@ function App() {
 
   // --- ROOM HANDLERS ---
   const handleCreateRoom = async () => {
+    setIsWaking(true); 
     try {
       const res = await fetch(`${API_URL}/create-room`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(roomSettings),
       });
+
+      if (!res.ok) throw new Error("Server is still waking up...");
+
       const data = await res.json();
       setRoomId(data.roomId);
       setView("summary");
     } catch (err) {
-      console.error("Failed to create room", err);
+      console.error("Create Room Error:", err);
+      alert("The server is currently waking up (Render Free Tier). Please wait 30 seconds and try again!");
+    } finally {
+      setIsWaking(false);
     }
   };
 
   const handleJoinRoom = async (code) => {
     const targetCode = code || roomInput;
     if (!targetCode) return;
-
+    setIsWaking(true);
     try {
       const res = await fetch(`${API_URL}/room/${targetCode}`);
+      if (!res.ok) throw new Error("Room lookup failed");
       const data = await res.json();
 
       if (data.exists) {
@@ -85,20 +91,24 @@ function App() {
         socket.emit("join-room", { roomId: targetCode, username });
         setView("chat");
         window.history.replaceState({}, "", "/");
-      } else alert("Room not found");
+      } else {
+        alert("Invite code invalid or expired.");
+      }
     } catch (err) {
       console.error("Join error:", err);
+      alert("Connection failed. The server might be sleeping.");
+    } finally {
+      setIsWaking(false);
     }
   };
 
-  // --- CHAT HANDLERS ---
+  // --- CHAT & GAME HANDLERS ---
   const sendMessage = () => {
     if (!msgInput.trim()) return;
     socket.emit("send-message", { roomId, message: msgInput, username });
     setMsgInput("");
   };
 
-  // --- 1v1 GAME HANDLERS ---
   const sendInvite = (gameId) => {
     if (!opponent) return alert("Select an opponent first!");
     setActiveGame(gameId);
@@ -116,7 +126,7 @@ function App() {
 
   return (
     <div className="h-screen bg-[#0e1621] text-white font-sans flex flex-col overflow-hidden selection:bg-[#2481cc]/30">
-
+      
       {/* 1v1 INVITE POPUP */}
       {pendingInvite && (
         <div className="fixed top-10 left-1/2 -translate-x-1/2 z-[100] bg-[#17212b] border-2 border-[#2481cc] p-4 rounded-2xl shadow-2xl animate-bounce">
@@ -128,52 +138,84 @@ function App() {
         </div>
       )}
 
-      {/* PHASE 1: LANDING */}
+      {/* VIEW: LANDING */}
       {view === "landing" && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in fade-in zoom-in-95">
           <div className="w-full max-w-sm text-center space-y-8">
             <div className="space-y-4">
-              <div className="w-24 h-24 bg-gradient-to-tr from-[#2aabee] to-[#2481cc] rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl rotate-3 hover:rotate-0 transition-all">
+              <div className="w-24 h-24 bg-gradient-to-tr from-[#2aabee] to-[#2481cc] rounded-[2.5rem] flex items-center justify-center mx-auto shadow-2xl rotate-3">
                 <svg viewBox="0 0 24 24" width="48" height="48" fill="white"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
               </div>
-              <h1 className="text-4xl font-black">Telegram</h1>
+              <h1 className="text-4xl font-black">SecureChat</h1>
               <p className="text-gray-400">Anonymous, ephemeral, secure.</p>
             </div>
             <div className="space-y-4">
-              <button onClick={() => setView("setup")} className="w-full bg-[#2481cc] py-4 rounded-2xl font-bold hover:bg-[#2b8fdb] transition-all">CREATE ROOM</button>
+              <button 
+                onClick={() => setView("setup")} 
+                disabled={isWaking}
+                className="w-full bg-[#2481cc] py-4 rounded-2xl font-bold hover:bg-[#2b8fdb] transition-all disabled:opacity-50"
+              >
+                {isWaking ? "WAKING SERVER..." : "CREATE ROOM"}
+              </button>
               <div className="bg-[#17212b] p-2 rounded-2xl flex gap-2 border border-white/5">
-                <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="Invite Code" className="bg-transparent flex-1 px-4 outline-none uppercase font-mono text-sm" />
-                <button onClick={() => handleJoinRoom()} className="bg-[#2481cc] px-6 py-3 rounded-xl font-bold">JOIN</button>
+                <input 
+                  value={roomInput} 
+                  onChange={(e) => setRoomInput(e.target.value)} 
+                  placeholder="Invite Code" 
+                  className="bg-transparent flex-1 px-4 outline-none uppercase font-mono text-sm" 
+                />
+                <button 
+                   onClick={() => handleJoinRoom()} 
+                   disabled={isWaking}
+                   className="bg-[#2481cc] px-6 py-3 rounded-xl font-bold disabled:opacity-50"
+                >
+                  JOIN
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* PHASE 2: SETUP */}
+      {/* VIEW: SETUP */}
       {view === "setup" && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in slide-in-from-bottom-8">
           <div className="w-full max-w-md bg-[#17212b] rounded-3xl p-8 border border-white/5">
             <h2 className="text-2xl font-bold mb-6">Room Settings</h2>
             <div className="space-y-6">
-              <input onChange={(e) => setRoomSettings({...roomSettings, name: e.target.value})} className="w-full bg-[#0e1621] border border-gray-700 rounded-xl p-4 outline-none focus:border-[#2481cc]" placeholder="Name your secret room..." />
+              <input 
+                onChange={(e) => setRoomSettings({...roomSettings, name: e.target.value})} 
+                className="w-full bg-[#0e1621] border border-gray-700 rounded-xl p-4 outline-none focus:border-[#2481cc]" 
+                placeholder="Name your secret room..." 
+              />
               <div className="flex items-center justify-between p-4 bg-[#0e1621] rounded-2xl border border-gray-800">
                 <div>
                   <p className="font-bold text-sm">Ephemeral Mode</p>
                   <p className="text-xs text-gray-500">History wipes on disconnect</p>
                 </div>
-                <input type="checkbox" checked={roomSettings.isEphemeral} onChange={(e) => setRoomSettings({...roomSettings, isEphemeral: e.target.checked})} className="w-5 h-5 accent-[#2481cc]" />
+                <input 
+                  type="checkbox" 
+                  checked={roomSettings.isEphemeral} 
+                  onChange={(e) => setRoomSettings({...roomSettings, isEphemeral: e.target.checked})} 
+                  className="w-5 h-5 accent-[#2481cc]" 
+                />
               </div>
               <div className="flex gap-4">
                 <button onClick={() => setView("landing")} className="flex-1 text-gray-500 font-bold">BACK</button>
-                <button onClick={handleCreateRoom} className="flex-[2] bg-[#2481cc] py-4 rounded-xl font-bold">CREATE</button>
+                <button 
+                  onClick={handleCreateRoom} 
+                  disabled={isWaking}
+                  className="flex-[2] bg-[#2481cc] py-4 rounded-xl font-bold hover:brightness-110"
+                >
+                  {isWaking ? "CREATING..." : "CREATE"}
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* PHASE 3: SUMMARY */}
+      {/* VIEW: SUMMARY */}
       {view === "summary" && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 animate-in zoom-in-95">
           <div className="w-full max-w-sm bg-[#17212b] rounded-3xl p-8 text-center border border-white/5">
@@ -190,47 +232,37 @@ function App() {
         </div>
       )}
 
-      {/* PHASE 4: CHAT ROOM */}
+      {/* VIEW: CHAT ROOM */}
       {view === "chat" && (
         <div className="flex flex-col h-full max-w-5xl mx-auto w-full bg-[#0e1621] relative shadow-2xl">
-          {/* Chat Header */}
           <div className="bg-[#17212b]/95 backdrop-blur-md h-16 flex items-center px-4 justify-between border-b border-black/20 z-20">
             <div className="flex items-center gap-3">
               <button onClick={() => setView("landing")} className="p-2 hover:bg-white/5 rounded-full text-gray-400">
                 <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"></path></svg>
               </button>
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2aabee] to-[#2481cc] flex items-center justify-center font-bold">{roomSettings.name?.charAt(0).toUpperCase() || "R"}</div>
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2aabee] to-[#2481cc] flex items-center justify-center font-bold">
+                {roomSettings.name?.charAt(0).toUpperCase() || "R"}
+              </div>
               <div>
                 <h3 className="font-bold text-[15px]">{roomSettings.name || `Room ${roomId}`}</h3>
                 <p className="text-[11px] text-[#64b5f6] font-bold">{users.length} ONLINE</p>
               </div>
             </div>
             <div className="flex gap-2">
-              <button onClick={() => setView("games")} className="p-2 text-orange-400 hover:bg-orange-400/10 rounded-full transition">
-                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor">
-                  <path d="M21,6H3C1.9,6,1,6.9,1,8v8c0,1.1,0.9,2,2,2h18c1.1,0,2-0.9,2-2V8C23,6.9,22.1,6,21,6z M10,13.5c0,0.8-0.7,1.5-1.5,1.5 S7,14.3,7,13.5V13H6.5C5.7,13,5,12.3,5,11.5S5.7,10,6.5,10H7v-0.5C7,8.7,7.7,8,8.5,8S10,8.7,10,9.5V10h0.5 c0.8,0,1.5,0.7,1.5,1.5S11.3,13,10.5,13H10V13.5z"/>
-                </svg>
-              </button>
-              <button onClick={() => navigator.clipboard.writeText(inviteLink)} className="p-2 text-gray-400 hover:text-white">
-                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
-                  <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/>
-                </svg>
+              <button onClick={() => setView("games")} className="p-2 text-orange-400 hover:bg-orange-400/10 rounded-full">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21,6H3C1.9,6,1,6.9,1,8v8c0,1.1,0.9,2,2,2h18c1.1,0,2-0.9,2-2V8C23,6.9,22.1,6,21,6z M10,13.5c0,0.8-0.7,1.5-1.5,1.5 S7,14.3,7,13.5V13H6.5C5.7,13,5,12.3,5,11.5S5.7,10,6.5,10H7v-0.5C7,8.7,7.7,8,8.5,8S10,8.7,10,9.5V10h0.5 c0.8,0,1.5,0.7,1.5,1.5S11.3,13,10.5,13H10V13.5z"/></svg>
               </button>
             </div>
           </div>
 
-          {/* CHAT MESSAGES */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0e1621] custom-scrollbar" style={{ backgroundImage: `url('https://www.transparenttextures.com/patterns/carbon-fibre.png')`, backgroundBlendMode: 'soft-light' }}>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0e1621] custom-scrollbar">
             {messages.map((m, i) => {
               const isMe = m.username === username;
               return (
-                <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2 duration-200`}>
+                <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"} animate-in fade-in slide-in-from-bottom-2`}>
                   <div className={`max-w-[80%] px-3 py-1.5 rounded-2xl ${isMe ? "bg-[#2b5278] rounded-tr-none" : "bg-[#182533] rounded-tl-none"}`}>
-                    {!isMe && <p className="text-[12px] font-black text-[#64b5f6] mb-0.5 tracking-tight">{m.username}</p>}
-                    <div className="flex flex-wrap items-end justify-between gap-3">
-                      <p className="text-[15px]">{m.text}</p>
-                      <span className="text-[9px] text-white/40 font-bold ml-auto">12:00</span>
-                    </div>
+                    {!isMe && <p className="text-[12px] font-black text-[#64b5f6] mb-0.5">{m.username}</p>}
+                    <p className="text-[15px]">{m.text}</p>
                   </div>
                 </div>
               );
@@ -238,9 +270,14 @@ function App() {
             <div ref={scrollRef} />
           </div>
 
-          {/* CHAT INPUT */}
           <div className="bg-[#17212b] p-3 flex items-center gap-2 border-t border-black/10">
-            <input value={msgInput} onChange={(e) => setMsgInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendMessage()} placeholder="Message" className="flex-1 bg-transparent px-2 outline-none text-[16px]" />
+            <input 
+              value={msgInput} 
+              onChange={(e) => setMsgInput(e.target.value)} 
+              onKeyDown={(e) => e.key === "Enter" && sendMessage()} 
+              placeholder="Message" 
+              className="flex-1 bg-transparent px-2 outline-none" 
+            />
             <button onClick={sendMessage} className="text-[#2481cc] p-2">
               <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"></path></svg>
             </button>
@@ -248,23 +285,19 @@ function App() {
         </div>
       )}
 
-      {/* PHASE 5: GAME CENTER */}
+      {/* VIEW: GAME CENTER */}
       {view === "games" && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 bg-[#0e1621] animate-in zoom-in-95">
-          <div className="w-full max-w-2xl bg-[#17212b] rounded-3xl p-8 border border-white/5 shadow-2xl overflow-hidden">
+          <div className="w-full max-w-2xl bg-[#17212b] rounded-3xl p-8 border border-white/5 shadow-2xl">
             <div className="flex justify-between items-center mb-8">
-              <div>
-                <h2 className="text-2xl font-black">Game Center</h2>
-                <p className="text-gray-400 text-xs">Room: {roomSettings.name || roomId}</p>
-              </div>
-              <button onClick={() => { setView("chat"); setActiveGame(null); }} className="p-2 bg-white/5 hover:bg-white/10 rounded-full">
+              <h2 className="text-2xl font-black">Game Center</h2>
+              <button onClick={() => { setView("chat"); setActiveGame(null); }} className="p-2 bg-white/5 rounded-full hover:bg-white/10">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
               </button>
             </div>
 
             {!activeGame ? (
               <div className="space-y-6">
-                {/* 1v1 OPPONENT SELECTOR */}
                 <div>
                   <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest mb-3">1. Select Opponent</h3>
                   <div className="flex gap-2 overflow-x-auto pb-2">
@@ -275,12 +308,11 @@ function App() {
                         </button>
                       ))
                     ) : (
-                      <p className="text-[10px] text-gray-600 italic">Waiting for someone else to join the room...</p>
+                      <p className="text-[10px] text-gray-600 italic">Waiting for others to join...</p>
                     )}
                   </div>
                 </div>
 
-                {/* GAME LIST */}
                 <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">2. Choose Game</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {GAMES.map((game) => (
@@ -288,9 +320,9 @@ function App() {
                       key={game.id} 
                       disabled={!opponent}
                       onClick={() => sendInvite(game.id)} 
-                      className={`group p-6 bg-[#0e1621] rounded-2xl border transition-all flex flex-col items-center gap-3 ${!opponent ? 'opacity-20 cursor-not-allowed' : 'border-white/5 hover:border-[#2481cc]'}`}
+                      className={`p-6 bg-[#0e1621] rounded-2xl border transition-all flex flex-col items-center gap-3 ${!opponent ? 'opacity-20' : 'border-white/5 hover:border-[#2481cc]'}`}
                     >
-                      <span className="text-4xl group-hover:scale-110 transition-transform">{game.icon}</span>
+                      <span className="text-4xl">{game.icon}</span>
                       <span className="font-bold text-[10px] uppercase tracking-widest">{game.name}</span>
                     </button>
                   ))}
@@ -298,11 +330,8 @@ function App() {
               </div>
             ) : (
               <div className="flex flex-col items-center animate-in fade-in duration-500">
-                <div className="mb-4 text-[10px] font-bold text-[#2481cc] uppercase tracking-widest flex items-center gap-2">
-                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                  Playing VS: {opponent}
-                </div>
-                <div className="w-full aspect-video bg-black/20 rounded-2xl mb-6 flex items-center justify-center border border-white/5 overflow-hidden">
+                <div className="mb-4 text-[10px] font-bold text-[#2481cc] uppercase tracking-widest">Playing VS: {opponent}</div>
+                <div className="w-full aspect-video bg-black/20 rounded-2xl mb-6 flex items-center justify-center border border-white/5">
                   {GAMES.map(game => (
                     activeGame === game.id && (
                       <game.Component 
@@ -315,7 +344,7 @@ function App() {
                     )
                   ))}
                 </div>
-                <button onClick={() => {setActiveGame(null); setOpponent(null);}} className="text-xs font-bold text-red-500 hover:underline uppercase tracking-tighter">Exit to Menu</button>
+                <button onClick={() => {setActiveGame(null); setOpponent(null);}} className="text-xs font-bold text-red-500 hover:underline">Exit Menu</button>
               </div>
             )}
           </div>
