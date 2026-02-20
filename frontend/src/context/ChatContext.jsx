@@ -20,17 +20,8 @@ export const ChatProvider = ({ children }) => {
   // Initialize socket
   const [socket] = useState(() =>
   io("https://equal.onrender.com", {
-    // 1. Force WebSocket from the start to skip the "polling" phase
-    // that often triggers the browser's local network check.
-    transports: ["websocket"], 
-    
-    // 2. Explicitly disable credentials to signal this is a standard 
-    // public API request.
-    withCredentials: false,
-    
-    // 3. Add these to stabilize the connection on Render's free tier
-    autoConnect: true,
-    reconnection: true
+    transports: ["websocket"], // Force WebSocket to bypass polling-based security triggers
+    withCredentials: true
   })
 );
 
