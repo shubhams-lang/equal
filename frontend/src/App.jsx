@@ -18,7 +18,6 @@ function App() {
     socket,
     activeGame,
     pendingInvite,
-    setPendingInvite,
     scores,
     updateScore,
     sendImage,
@@ -34,13 +33,19 @@ function App() {
   const [view, setView] = useState("landing");
   const [roomInput, setRoomInput] = useState("");
   const [msgInput, setMsgInput] = useState("");
-  const [roomSettings] = useState({ name: "", isEphemeral: true });
   const [isWaking, setIsWaking] = useState(false);
 
   const scrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
+  const API_URL = "https://equal.onrender.com";
+
+  // --- SAFE opponent detection ---
+  const opponent = users?.find((u) => u !== username);
+  const isHost = opponent ? username < opponent : true;
+
+  // --- GAMES ---
   const GAMES = [
     { id: "Pong", name: "Pong", icon: "🏓", Component: Pong },
     { id: "TicTacToe", name: "Tic Tac Toe", icon: "❌", Component: TicTacToe },
@@ -48,12 +53,6 @@ function App() {
     { id: "SlideRace", name: "Slider Race", icon: "🏎️", Component: SliderRace },
     { id: "WordScramble", name: "Scramble", icon: "🔠", Component: WordScramble },
   ];
-
-  const API_URL = "https://equal.onrender.com";
-
-  // ✅ SAFE opponent detection
-  const opponent = users?.find((u) => u !== username);
-  const isHost = opponent ? username < opponent : true;
 
   // --- EFFECTS ---
   useEffect(() => {
@@ -70,26 +69,24 @@ function App() {
     if (activeGame) setView("games");
   }, [activeGame]);
 
-  // --- HANDLERS ---
-  const handleInputChange = (e) => {
-    setMsgInput(e.target.value);
+  // --- CREATE ROOM ---
+  const handleCreateRoom = () => {
+    const newRoomId = Math.random()
+      .toString(36)
+      .substring(2, 8)
+      .toUpperCase();
 
-    setTypingStatus(true);
-    if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      setTypingStatus(false);
-    }, 2000);
+    setRoomId(newRoomId);
+
+    socket?.emit("create-room", {
+      roomId: newRoomId,
+      username,
+    });
+
+    setView("chat");
   };
 
-  const handleImageUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => sendImage(reader.result);
-      reader.readAsDataURL(file);
-    }
-  };
-
+  // --- JOIN ROOM ---
   const handleJoinRoom = async (code) => {
     const targetCode = code || roomInput;
     if (!targetCode) return;
@@ -103,12 +100,29 @@ function App() {
       if (data?.exists) {
         setRoomId(targetCode);
         setView("chat");
+      } else {
+        alert("Room not found.");
       }
     } catch {
       alert("Server error.");
     } finally {
       setIsWaking(false);
     }
+  };
+
+  // --- MESSAGE HANDLING ---
+  const handleInputChange = (e) => {
+    setMsgInput(e.target.value);
+
+    setTypingStatus(true);
+
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+
+    typingTimeoutRef.current = setTimeout(() => {
+      setTypingStatus(false);
+    }, 2000);
   };
 
   const sendMessage = () => {
@@ -125,9 +139,18 @@ function App() {
     setTypingStatus(false);
   };
 
+  const handleImageUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => sendImage(reader.result);
+    reader.readAsDataURL(file);
+  };
+
   return (
-    <div className="h-screen bg-[#0e1621] text-white font-sans flex flex-col overflow-hidden">
-      
+    <div className="h-screen bg-[#0e1621] text-white flex flex-col overflow-hidden">
+
       {/* LANDING */}
       {view === "landing" && (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center">
@@ -135,7 +158,7 @@ function App() {
 
           <div className="w-full max-w-xs space-y-4">
             <button
-              onClick={() => setView("chat")}
+              onClick={handleCreateRoom}
               className="w-full bg-[#2481cc] py-4 rounded-2xl font-black"
             >
               CREATE ROOM
@@ -145,7 +168,7 @@ function App() {
               <input
                 value={roomInput}
                 onChange={(e) => setRoomInput(e.target.value)}
-                placeholder="CODE"
+                placeholder="ROOM CODE"
                 className="bg-transparent flex-1 px-4 outline-none"
               />
               <button
@@ -177,6 +200,7 @@ function App() {
                   {scores?.[username] || 0}
                 </p>
               </div>
+
               <div>
                 <p className="text-xs">{opponent || "..."}</p>
                 <p className="text-lg text-red-500">
@@ -195,7 +219,22 @@ function App() {
             <div ref={scrollRef} />
           </div>
 
-          <div className="bg-[#17212b] p-3 flex gap-3">
+          <div className="bg-[#17212b] p-3 flex items-center gap-3">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="text-xl"
+            >
+              🖼️
+            </button>
+
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleImageUpload}
+              accept="image/*"
+              className="hidden"
+            />
+
             <input
               value={msgInput}
               onChange={handleInputChange}
@@ -203,6 +242,7 @@ function App() {
               className="flex-1 bg-transparent outline-none"
               placeholder="Type message..."
             />
+
             <button
               onClick={sendMessage}
               className="text-[#2481cc] font-black"
