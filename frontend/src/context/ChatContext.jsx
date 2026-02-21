@@ -1,348 +1,251 @@
-import React, {
-  createContext,
-  useState,
-  useEffect,
-  useMemo,
-  useRef
-} from "react";
-import { io } from "socket.io-client";
+import { createContext, useState, useEffect, useRef } from "react";
+import io from "socket.io-client";
+import CryptoJS from "crypto-js";
+import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
+// 🔥 IMPORTANT: Replace with your Render backend URL
+const SOCKET_URL = "https://your-backend-name.onrender.com";
+
+const socket = io(SOCKET_URL, {
+  transports: ["websocket"],
+  withCredentials: true
+});
+
 export const ChatProvider = ({ children }) => {
-  /* =============================
-     CORE STATE
-  ============================= */
-  const [messages, setMessages] = useState([]);
-  const [roomId, setRoomId] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [opponent, setOpponent] = useState(null);
 
-  const [activeGame, setActiveGame] = useState(null);
-  const [pendingInvite, setPendingInvite] = useState(null);
-  const [scores, setScores] = useState({});
-  const [isOpponentTyping, setIsOpponentTyping] = useState(false);
-
-  /* =============================
-     GAME MODE / MATCHMAKING
-  ============================= */
-  const [gameMode, setGameMode] = useState("casual");
-  const [isMatchmaking, setIsMatchmaking] = useState(false);
-  const [showMatchIntro, setShowMatchIntro] = useState(false);
-
-  /* =============================
-     PERSISTENT USERNAME
-  ============================= */
-  const [username] = useState(() => {
-    const stored = localStorage.getItem("username");
-    if (stored) return stored;
-
-    const newName = `User_${Math.floor(Math.random() * 1000)}`;
-    localStorage.setItem("username", newName);
-    return newName;
-  });
-
-  /* =============================
-     SOCKET CONNECTION
-  ============================= */
-  const socket = useMemo(
-    () =>
-      io("https://equal.onrender.com", {
-        transports: ["websocket"],
-        withCredentials: true,
-        autoConnect: true
-      }),
-    []
+  const [username] = useState(
+    "User" + Math.floor(Math.random() * 1000)
   );
 
-  /* =============================
-     JOIN ROOM
-  ============================= */
-  useEffect(() => {
-    if (roomId) {
-      socket.emit("join-room", { roomId, username });
+  const [rooms, setRooms] = useState([]);
+  const [activeRoom, setActiveRoom] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState([]);
+  const [roomKey, setRoomKey] = useState("");
+  const typingTimeout = useRef(null);
+
+  /* ===========================
+     🔐 ENCRYPTION
+  =========================== */
+
+  const generateKey = () =>
+    CryptoJS.lib.WordArray.random(32).toString();
+
+  const encrypt = (msg) =>
+    CryptoJS.AES.encrypt(msg, roomKey).toString();
+
+  const decrypt = (cipher) => {
+    const bytes = CryptoJS.AES.decrypt(cipher, roomKey);
+    return bytes.toString(CryptoJS.enc.Utf8);
+  };
+
+  /* ===========================
+     🚪 JOIN ROOM
+  =========================== */
+
+  const joinRoom = (roomId) => {
+
+    if (!rooms.includes(roomId)) {
+      setRooms(prev => [...prev, roomId]);
     }
-  }, [roomId, socket, username]);
 
-  /* =============================
-     SOCKET LISTENERS
-  ============================= */
+    setActiveRoom(roomId);
+    setMessages([]);
+
+    const key = generateKey();
+    setRoomKey(key);
+
+    socket.emit("join-room", { roomId, username });
+  };
+
+  /* ===========================
+     💬 SEND MESSAGE
+  =========================== */
+
+  const sendMessage = (text) => {
+
+    if (!text || !activeRoom) return;
+
+    const encrypted = encrypt(text);
+
+    const messageData = {
+      id: uuidv4(),
+      roomId: activeRoom,
+      username,
+      message: encrypted,
+      status: "sent",
+      reactions: {}
+    };
+
+    socket.emit("send-message", messageData);
+
+    setMessages(prev => [
+      ...prev,
+      { ...messageData, message: text }
+    ]);
+  };
+
+  /* ===========================
+     ✍️ TYPING
+  =========================== */
+
+  const handleTyping = () => {
+
+    socket.emit("typing", {
+      roomId: activeRoom,
+      username
+    });
+
+    clearTimeout(typingTimeout.current);
+
+    typingTimeout.current = setTimeout(() => {
+      socket.emit("stop-typing", {
+        roomId: activeRoom,
+        username
+      });
+    }, 1000);
+  };
+
+  /* ===========================
+     ❤️ REACTION
+  =========================== */
+
+  const addReaction = (messageId, emoji) => {
+    socket.emit("add-reaction", {
+      roomId: activeRoom,
+      messageId,
+      emoji,
+      username
+    });
+  };
+
+  /* ===========================
+     🔔 PUSH NOTIFICATIONS
+  =========================== */
+
   useEffect(() => {
-    if (!socket) return;
 
-    /* --- ROOM UPDATE --- */
-    socket.on("room-update", (data) => {
-      if (data.users) {
-        setUsers(data.users);
+    const subscribeUser = async () => {
+      if ("serviceWorker" in navigator) {
 
-        const other = data.users.find((u) => u !== username);
-        setOpponent(other || null);
-      }
+        const registration =
+          await navigator.serviceWorker.register("/sw.js");
 
-      if (data.messages) setMessages(data.messages);
-      if (data.scores) setScores(data.scores);
-    });
+        const subscription =
+          await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey:
+              "YOUR_PUBLIC_VAPID_KEY"
+          });
 
-    /* --- RECEIVE MESSAGE --- */
-    socket.on("receive-message", (msg) => {
-      setMessages((prev) => [...prev, msg]);
-      setIsOpponentTyping(false);
-      playSound("message.mp3");
-    });
-
-    /* --- TYPING --- */
-    socket.on("display-typing", (data) => {
-      if (data.username !== username) {
-        setIsOpponentTyping(data.isTyping);
-      }
-    });
-
-    /* --- SCORE SYNC --- */
-    socket.on("score-update", (newScores) => {
-      setScores(newScores);
-    });
-
-    /* --- GAME ENGINE --- */
-    socket.on("game-state-update", (payload) => {
-      if (
-        payload.type === "GAME_REQUEST" ||
-        payload.type === "REMATCH_REQUEST"
-      ) {
-        setPendingInvite({
-          ...payload,
-          isRematch: payload.type === "REMATCH_REQUEST"
+        await fetch(`${SOCKET_URL}/subscribe`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(subscription)
         });
       }
+    };
 
-      if (payload.type === "GAME_ACCEPTED") {
-        setPendingInvite(null);
-        setShowMatchIntro(true);
+    subscribeUser();
 
-        setTimeout(() => {
-          setActiveGame(payload.gameId);
-          setShowMatchIntro(false);
-        }, 3500);
-      }
+  }, []);
 
-      if (payload.type === "GAME_DECLINED") {
-        setPendingInvite(null);
-      }
+  /* ===========================
+     📡 SOCKET LISTENERS
+  =========================== */
 
-      if (payload.type === "EXIT_GAME") {
-        setActiveGame(null);
-        setPendingInvite(null);
-      }
+  useEffect(() => {
+
+    socket.on("receive-message", (msg) => {
+
+      const decrypted = decrypt(msg.message);
+
+      setMessages(prev => [
+        ...prev,
+        {
+          ...msg,
+          message: decrypted,
+          status: "delivered"
+        }
+      ]);
     });
 
-    /* --- PUBLIC MATCH FOUND (FIXED) --- */
-    socket.on("public-match-found", ({ roomId, opponentName }) => {
-      // ✅ ONLY allow if user actively joined matchmaking
-      if (!isMatchmaking) return;
+    socket.on("update-seen", ({ messageId }) => {
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === messageId
+            ? { ...msg, status: "seen" }
+            : msg
+        )
+      );
+    });
 
-      setRoomId(roomId);
-      setOpponent(opponentName);
-      setIsMatchmaking(false);
+    socket.on("user-typing", (user) => {
+      setTypingUsers(prev =>
+        prev.includes(user) ? prev : [...prev, user]
+      );
+    });
+
+    socket.on("user-stop-typing", (user) => {
+      setTypingUsers(prev =>
+        prev.filter(u => u !== user)
+      );
+    });
+
+    socket.on("online-users", (users) => {
+      setOnlineUsers(users);
+    });
+
+    socket.on("update-reaction", (data) => {
+
+      setMessages(prev =>
+        prev.map(msg => {
+
+          if (msg.id === data.messageId) {
+
+            const updated = { ...msg };
+            updated.reactions = updated.reactions || {};
+
+            updated.reactions[data.emoji] = [
+              ...(updated.reactions[data.emoji] || []),
+              data.username
+            ];
+
+            return updated;
+          }
+
+          return msg;
+        })
+      );
     });
 
     return () => {
-      socket.off("room-update");
-      socket.off("receive-message");
-      socket.off("display-typing");
-      socket.off("game-state-update");
-      socket.off("score-update");
-      socket.off("public-match-found");
-    };
-  }, [socket, username, isMatchmaking]);
-
-  /* =============================
-     TYPING SYSTEM
-  ============================= */
-  const typingTimeout = useRef(null);
-
-  const setTypingStatus = (isTyping) => {
-    if (!roomId) return;
-
-    socket.emit("typing", { roomId, username, isTyping });
-
-    if (isTyping) {
-      clearTimeout(typingTimeout.current);
-      typingTimeout.current = setTimeout(() => {
-        socket.emit("typing", {
-          roomId,
-          username,
-          isTyping: false
-        });
-      }, 1500);
-    }
-  };
-
-  /* =============================
-     SOUND
-  ============================= */
-  const playSound = (file) => {
-    const audio = new Audio(`/sounds/${file}`);
-    audio.volume = 0.4;
-    audio.play().catch(() => {});
-  };
-
-  /* =============================
-     MESSAGE ACTIONS
-  ============================= */
-  const sendImage = (base64Str) => {
-    if (!roomId) return;
-
-    socket.emit("send-message", {
-      roomId,
-      username,
-      type: "image",
-      content: base64Str,
-      timestamp: new Date().toISOString()
-    });
-
-    setTypingStatus(false);
-  };
-
-  /* =============================
-     SCORE SYSTEM
-  ============================= */
-  const updateScore = (winnerName) => {
-    const newScores = {
-      ...scores,
-      [winnerName]: (scores[winnerName] || 0) + 1
+      socket.off();
     };
 
-    setScores(newScores);
-    socket.emit("sync-scores", { roomId, scores: newScores });
-  };
+  }, [roomKey]);
 
-  /* =============================
-     GAME ACTIONS
-  ============================= */
-  const sendGameRequest = (gameId) => {
-    setPendingInvite({
-      gameId,
-      sender: username,
-      isSentByMe: true,
-      isRematch: false
-    });
+  /* ===========================
+     📦 CONTEXT VALUE
+  =========================== */
 
-    socket.emit("game-state-sync", {
-      roomId,
-      payload: {
-        type: "GAME_REQUEST",
-        gameId,
-        sender: username,
-        mode: gameMode
-      }
-    });
-  };
-
-  const sendRematchRequest = () => {
-    if (!activeGame) return;
-
-    setPendingInvite({
-      gameId: activeGame,
-      sender: username,
-      isSentByMe: true,
-      isRematch: true
-    });
-
-    socket.emit("game-state-sync", {
-      roomId,
-      payload: {
-        type: "REMATCH_REQUEST",
-        gameId: activeGame,
-        sender: username
-      }
-    });
-  };
-
-  const acceptGameRequest = (gameId) => {
-    socket.emit("game-state-sync", {
-      roomId,
-      payload: {
-        type: "GAME_ACCEPTED",
-        gameId,
-        sender: username
-      }
-    });
-  };
-
-  const declineGameRequest = () => {
-    setPendingInvite(null);
-
-    socket.emit("game-state-sync", {
-      roomId,
-      payload: {
-        type: "GAME_DECLINED",
-        sender: username
-      }
-    });
-  };
-
-  const closeGame = () => {
-    setActiveGame(null);
-
-    socket.emit("game-state-sync", {
-      roomId,
-      payload: {
-        type: "EXIT_GAME",
-        sender: username
-      }
-    });
-  };
-
-  /* =============================
-     MATCHMAKING
-  ============================= */
-  const joinPublicQueue = () => {
-    setIsMatchmaking(true);
-    socket.emit("join-public-queue", {
-      username,
-      mode: gameMode
-    });
-  };
-
-  const leavePublicQueue = () => {
-    setIsMatchmaking(false);
-    socket.emit("leave-public-queue", { username });
-  };
-
-  /* =============================
-     PROVIDER
-  ============================= */
   return (
-    <ChatContext.Provider
-      value={{
-        messages,
-        roomId,
-        setRoomId,
-        users,
-        opponent,
-        username,
-        socket,
-        activeGame,
-        pendingInvite,
-        scores,
-        isOpponentTyping,
-
-        gameMode,
-        setGameMode,
-        isMatchmaking,
-        joinPublicQueue,
-        leavePublicQueue,
-        showMatchIntro,
-
-        setTypingStatus,
-        updateScore,
-        sendImage,
-        sendGameRequest,
-        sendRematchRequest,
-        acceptGameRequest,
-        declineGameRequest,
-        closeGame
-      }}
-    >
+    <ChatContext.Provider value={{
+      username,
+      rooms,
+      activeRoom,
+      messages,
+      typingUsers,
+      onlineUsers,
+      joinRoom,
+      sendMessage,
+      handleTyping,
+      addReaction,
+      socket
+    }}>
       {children}
     </ChatContext.Provider>
   );

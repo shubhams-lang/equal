@@ -1,135 +1,178 @@
-const express = require("express");
-const cors = require("cors");
-const http = require("http");
-const { Server } = require("socket.io");
-const { v4: uuidv4 } = require("uuid");
-const axios = require("axios");
+import express from "express";
+import http from "http";
+import { Server } from "socket.io";
+import cors from "cors";
+import webpush from "web-push";
+import { v4 as uuidv4 } from "uuid";
 
 const app = express();
-const server = http.createServer(app);
-
-// --- 1. PROPER CORS CONFIGURATION ---
-// "origin: true" allows any Vercel deployment URL to connect
-app.use(cors({
-  origin: true,
-  methods: ["GET", "POST", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
-}));
-
-// --- 2. PREFLIGHT MIDDLEWARE ---
-// Manually handles "OPTIONS" requests to prevent "Immediate" CORS errors
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", req.headers.origin);
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.header("Access-Control-Allow-Credentials", "true");
-  
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
+app.use(cors());
 app.use(express.json());
 
-// --- 3. SOCKET.IO SETUP ---
+const server = http.createServer(app);
+
 const io = new Server(server, {
   cors: {
-    origin: true,
-    methods: ["GET", "POST"],
-    credentials: true
-  },
-  transports: ["websocket", "polling"]
-});
-
-let rooms = {};
-
-// --- 4. API ROUTES ---
-
-// Create a new room
-app.post("/create-room", (req, res) => {
-  try {
-    const roomId = uuidv4().slice(0, 6).toUpperCase();
-    rooms[roomId] = { messages: [], users: [] };
-    console.log(`Room Created: ${roomId}`);
-    res.json({ roomId });
-  } catch (err) {
-    res.status(500).json({ error: "Failed to create room" });
+    origin: "*",
+    methods: ["GET", "POST"]
   }
 });
 
-// Check if room exists
-app.get("/room/:roomId", (req, res) => {
-  const { roomId } = req.params;
-  res.json({ exists: !!rooms[roomId] });
+/* ===========================
+   PUSH NOTIFICATION CONFIG
+=========================== */
+
+const VAPID_PUBLIC = "YOUR_PUBLIC_VAPID_KEY";
+const VAPID_PRIVATE = "YOUR_PRIVATE_VAPID_KEY";
+
+webpush.setVapidDetails(
+  "mailto:admin@yourapp.com",
+  VAPID_PUBLIC,
+  VAPID_PRIVATE
+);
+
+let subscriptions = [];
+
+// Save browser push subscription
+app.post("/subscribe", (req, res) => {
+  subscriptions.push(req.body);
+  res.status(201).json({ success: true });
 });
 
-// Health check for self-pings
-app.get("/health", (req, res) => {
-  res.status(200).send("OK");
-});
+/* ===========================
+   SOCKET.IO
+=========================== */
 
-// --- 5. SOCKET LOGIC (The Hub) ---
+const onlineUsers = {}; // { roomId: [usernames] }
 
 io.on("connection", (socket) => {
+
   console.log("User connected:", socket.id);
 
+  /* ===========================
+     JOIN ROOM
+  =========================== */
+
   socket.on("join-room", ({ roomId, username }) => {
-    if (!rooms[roomId]) return;
-    
+
     socket.join(roomId);
     socket.username = username;
     socket.roomId = roomId;
 
-    if (!rooms[roomId].users.includes(username)) {
-      rooms[roomId].users.push(username);
+    if (!onlineUsers[roomId]) {
+      onlineUsers[roomId] = [];
     }
-    
-    // Broadcast user list to the room
-    io.to(roomId).emit("room-update", { 
-      messages: rooms[roomId].messages, 
-      users: rooms[roomId].users 
+
+    if (!onlineUsers[roomId].includes(username)) {
+      onlineUsers[roomId].push(username);
+    }
+
+    io.to(roomId).emit("online-users", onlineUsers[roomId]);
+    socket.to(roomId).emit("user-online", username);
+
+    console.log(`${username} joined ${roomId}`);
+  });
+
+  /* ===========================
+     SEND MESSAGE
+  =========================== */
+
+  socket.on("send-message", (data) => {
+
+    const messagePayload = {
+      ...data,
+      status: "delivered"
+    };
+
+    io.to(data.roomId).emit("receive-message", messagePayload);
+
+    // Push notification
+    subscriptions.forEach(sub => {
+      webpush.sendNotification(
+        sub,
+        JSON.stringify({
+          title: "New Message",
+          body: "You received a new message"
+        })
+      ).catch(() => {});
     });
   });
 
-  // GAME SYNC: This sends score/movement updates to everyone in the room
-  socket.on("game-state-sync", ({ roomId, payload }) => {
-    // .to(roomId) sends to everyone EXCEPT the sender
-    socket.to(roomId).emit("game-state-update", payload);
+  /* ===========================
+     MESSAGE SEEN
+  =========================== */
+
+  socket.on("message-seen", ({ messageId, roomId }) => {
+    socket.to(roomId).emit("update-seen", { messageId });
   });
 
-  socket.on("send-message", ({ roomId, message, username }) => {
-    if (!rooms[roomId]) return;
-    const msg = { 
-      id: uuidv4(), 
-      text: message, 
-      username, 
-      time: Date.now() 
-    };
-    rooms[roomId].messages.push(msg);
-    io.to(roomId).emit("receive-message", msg);
+  /* ===========================
+     TYPING EVENTS
+  =========================== */
+
+  socket.on("typing", ({ roomId, username }) => {
+    socket.to(roomId).emit("user-typing", username);
   });
+
+  socket.on("stop-typing", ({ roomId, username }) => {
+    socket.to(roomId).emit("user-stop-typing", username);
+  });
+
+  /* ===========================
+     REACTIONS
+  =========================== */
+
+  socket.on("add-reaction", ({ roomId, messageId, emoji, username }) => {
+    socket.to(roomId).emit("update-reaction", {
+      messageId,
+      emoji,
+      username
+    });
+  });
+
+  /* ===========================
+     VOICE SIGNALING
+  =========================== */
+
+  socket.on("voice-offer", ({ offer, roomId }) => {
+    socket.to(roomId).emit("voice-offer", offer);
+  });
+
+  socket.on("voice-answer", ({ answer, roomId }) => {
+    socket.to(roomId).emit("voice-answer", answer);
+  });
+
+  socket.on("voice-candidate", ({ candidate, roomId }) => {
+    socket.to(roomId).emit("voice-candidate", candidate);
+  });
+
+  /* ===========================
+     DISCONNECT
+  =========================== */
 
   socket.on("disconnect", () => {
-    if (socket.roomId && rooms[socket.roomId]) {
-      rooms[socket.roomId].users = rooms[socket.roomId].users.filter(u => u !== socket.username);
-      io.to(socket.roomId).emit("room-update", { users: rooms[socket.roomId].users });
+
+    const { roomId, username } = socket;
+
+    if (roomId && onlineUsers[roomId]) {
+      onlineUsers[roomId] =
+        onlineUsers[roomId].filter(u => u !== username);
+
+      io.to(roomId).emit("online-users", onlineUsers[roomId]);
+      socket.to(roomId).emit("user-offline", username);
     }
+
     console.log("User disconnected:", socket.id);
   });
+
 });
 
-// --- 6. RENDER KEEP-ALIVE PING ---
-// Pings itself every 14 minutes to prevent the free tier from sleeping.
-setInterval(() => {
-  // Use your actual Render URL here
-  axios.get("https://equal.onrender.com/health")
-    .then(() => console.log("Self-ping successful: Server stays awake"))
-    .catch((err) => console.log("Self-ping: Server is awake (received heartbeat)"));
-}, 840000); 
+/* ===========================
+   START SERVER
+=========================== */
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`Backend running on port ${PORT}`);
+
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
