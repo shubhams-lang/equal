@@ -31,8 +31,7 @@ export const ChatProvider = ({ children }) => {
   
   // Generates a deterministic key so all users in the same room share the same encryption
   const generateKeyFromRoom = (id) => {
-    return CryptoJS.SHA256(id + "salt-secret-99").toString();
-  };
+  return CryptoJS.SHA256(id).toString();};
 
   const encrypt = (msg) => {
     try {
@@ -57,19 +56,20 @@ export const ChatProvider = ({ children }) => {
   =========================== */
 
   const joinRoom = (targetRoomId, chosenIdentity) => {
-    if (!targetRoomId || !chosenIdentity) return;
+  if (!targetRoomId || !chosenIdentity) return;
 
-    setRoomId(targetRoomId);
-    setUsername(chosenIdentity);
-    setMessages([]);
+  // 1. Set the key FIRST
+  const key = generateKeyFromRoom(targetRoomId);
+  setRoomKey(key);
 
-    // Set the encryption key for this specific room
-    const key = generateKeyFromRoom(targetRoomId);
-    setRoomKey(key);
+  // 2. Then set the room state
+  setRoomId(targetRoomId);
+  setUsername(chosenIdentity);
+  setMessages([]);
 
-    // Join via Socket
-    socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
-  };
+  // 3. Emit to socket
+  socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
+};
 
   /* ===========================
       💬 MESSAGING
