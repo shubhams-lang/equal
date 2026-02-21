@@ -24,6 +24,8 @@ function App() {
     acceptGameRequest,
     declineGameRequest,
     closeGame,
+    // 🔥 IMPORT JOINROOM HERE
+    joinRoom 
   } = useContext(ChatContext);
 
   const [view, setView] = useState("landing");
@@ -32,7 +34,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
 
   const scrollRef = useRef(null);
-
   const API_URL = "https://equal.onrender.com";
 
   const GAMES = [
@@ -47,7 +48,9 @@ function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("join");
-    if (code && !roomId) handleJoinRoom(code);
+    if (code && !roomId) {
+      handleJoinRoom(code);
+    }
   }, []);
 
   useEffect(() => {
@@ -62,17 +65,25 @@ function App() {
   const handleCreateRoom = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/create-room`, {
-        method: "POST",
-      });
+      // 1. Get the unique ID from your backend
+      const res = await fetch(`${API_URL}/create-room`, { method: "POST" });
       const data = await res.json();
 
+      // 2. Update the URL so it's shareable
       const inviteLink = `${window.location.origin}?join=${data.roomId}`;
       window.history.pushState({}, "", inviteLink);
 
+      // 3. Set React State
       setRoomId(data.roomId);
       setView("chat");
-    } catch {
+
+      // 🔥 4. CRITICAL FIX: Tell Socket.io to join this specific room
+      if (joinRoom) {
+         joinRoom(data.roomId);
+      }
+
+    } catch (err) {
+      console.error(err);
       alert("Failed to create room");
     }
     setIsLoading(false);
@@ -84,26 +95,38 @@ function App() {
     if (!target) return;
 
     try {
+      // 1. Check if room exists on backend
       const res = await fetch(`${API_URL}/room/${target}`);
       const data = await res.json();
 
       if (data.exists) {
+        // 2. Update the URL if joining via manual input
+        const inviteLink = `${window.location.origin}?join=${target}`;
+        window.history.pushState({}, "", inviteLink);
+
+        // 3. Set React state
         setRoomId(target);
         setView("chat");
+
+        // 🔥 4. CRITICAL FIX: Tell Socket.io to join this specific room
+        if (joinRoom) {
+           joinRoom(target);
+        }
       } else {
         alert("Room not found");
       }
-    } catch {
+    } catch (err) {
+      console.error(err);
       alert("Server error");
     }
   };
 
   // ---------------- SEND MESSAGE ----------------
   const sendMessage = () => {
-    if (!msgInput.trim()) return;
+    if (!msgInput.trim() || !roomId) return;
 
     socket.emit("send-message", {
-      roomId,
+      roomId, // Ensure roomId is being passed to the backend
       message: msgInput,
       username,
     });
@@ -153,9 +176,10 @@ function App() {
 
           <button
             onClick={handleCreateRoom}
-            className="bg-[#25D366] px-8 py-3 rounded-full font-bold"
+            disabled={isLoading}
+            className={`px-8 py-3 rounded-full font-bold ${isLoading ? 'bg-gray-500' : 'bg-[#25D366]'}`}
           >
-            Create Group
+            {isLoading ? "Creating..." : "Create Group"}
           </button>
 
           <div className="flex gap-2">
@@ -163,11 +187,11 @@ function App() {
               value={roomInput}
               onChange={(e) => setRoomInput(e.target.value)}
               placeholder="Enter Code"
-              className="bg-[#202c33] px-4 py-2 rounded-lg"
+              className="bg-[#202c33] px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-[#25D366]"
             />
             <button
               onClick={() => handleJoinRoom()}
-              className="bg-[#25D366] px-4 rounded-lg"
+              className="bg-[#25D366] px-4 rounded-lg font-bold"
             >
               Join
             </button>
@@ -180,18 +204,22 @@ function App() {
         <>
           <header className="bg-[#202c33] p-4 flex justify-between items-center">
             <div>
-              <h2 className="font-bold">{roomId}</h2>
+              {/* Show the actual Room ID so users know where they are */}
+              <h2 className="font-bold">Room: {roomId}</h2>
               <p className="text-xs text-gray-400">
-                {users.length} members
+                {users?.length || 1} members
               </p>
             </div>
 
             <div className="flex gap-4 items-center">
               <button
-                onClick={() =>
-                  navigator.clipboard.writeText(window.location.href)
-                }
-                className="text-xs bg-[#25D366] px-3 py-1 rounded-lg"
+                onClick={() => {
+                   // Ensure it copies the URL with the ?join= parameter
+                   const link = `${window.location.origin}?join=${roomId}`;
+                   navigator.clipboard.writeText(link);
+                   alert("Invite Link Copied!");
+                }}
+                className="text-xs bg-[#25D366] px-3 py-1 rounded-lg hover:bg-green-600 transition"
               >
                 Copy Invite
               </button>
@@ -204,13 +232,11 @@ function App() {
 
           {/* MESSAGES */}
           <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-[#0b141a]">
-            {messages.map((msg) => (
+            {messages.map((msg, index) => (
               <div
-                key={msg.id}
+                key={msg.id || index}
                 className={`flex ${
-                  msg.username === username
-                    ? "justify-end"
-                    : "justify-start"
+                  msg.username === username ? "justify-end" : "justify-start"
                 }`}
               >
                 <div
@@ -221,7 +247,7 @@ function App() {
                   }`}
                 >
                   {msg.username !== username && (
-                    <p className="text-xs text-[#25D366] font-bold">
+                    <p className="text-xs text-[#25D366] font-bold mb-1">
                       {msg.username}
                     </p>
                   )}
@@ -233,12 +259,12 @@ function App() {
           </div>
 
           {/* GAME SELECTOR */}
-          <div className="bg-[#202c33] px-4 py-2 flex gap-3 overflow-x-auto">
+          <div className="bg-[#202c33] px-4 py-2 flex gap-3 overflow-x-auto no-scrollbar">
             {GAMES.map((game) => (
               <button
                 key={game.id}
                 onClick={() => sendGameRequest(game.id)}
-                className="bg-[#2a3942] px-4 py-2 rounded-xl text-sm flex items-center gap-2"
+                className="bg-[#2a3942] hover:bg-[#3a4b55] transition px-4 py-2 rounded-xl text-sm flex items-center gap-2 whitespace-nowrap"
               >
                 {game.icon} {game.name}
               </button>
@@ -251,12 +277,12 @@ function App() {
               value={msgInput}
               onChange={(e) => setMsgInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-              className="flex-1 bg-[#2a3942] rounded-full px-4 py-2 outline-none"
+              className="flex-1 bg-[#2a3942] rounded-full px-4 py-2 outline-none focus:ring-1 focus:ring-[#25D366]"
               placeholder="Type a message"
             />
             <button
               onClick={sendMessage}
-              className="bg-[#25D366] px-6 rounded-full font-bold"
+              className="bg-[#25D366] hover:bg-green-600 transition px-6 rounded-full font-bold"
             >
               Send
             </button>
