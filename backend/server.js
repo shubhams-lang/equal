@@ -22,8 +22,9 @@ const io = new Server(server, {
     PUSH NOTIFICATION CONFIG
    =========================== */
 // Note: Replace these with real keys using 'npx web-push generate-vapid-keys'
-const VAPID_PUBLIC = "BNGqMc62YgNxy25W7KLmZQPK_A_ndW6QtDR7r6doeEFkk9ss92krAh5323o-WA2lW-JMQESTAd4V8_-bgAzASns";
-const VAPID_PRIVATE = "ApRaRKde2rLN-Jpss916F2lg7R3nZz4nOkKSq2KR404";
+// server.js
+const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 
 webpush.setVapidDetails(
   "mailto:shubham.s@semonks.com",

@@ -8,6 +8,10 @@ export const ChatContext = createContext();
 // 🔥 Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com/";
 
+// Vite environment variable for the Public VAPID key
+// Make sure to add VITE_PUBLIC_VAPID_KEY to your .env and Vercel settings
+const PUBLIC_VAPID_KEY = import.meta.env.VITE_PUBLIC_VAPID_KEY;
+
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
   withCredentials: true
@@ -18,7 +22,7 @@ export const ChatProvider = ({ children }) => {
   const [username, setUsername] = useState(""); 
   const [roomId, setRoomId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]); // Maps to online-users from server
+  const [users, setUsers] = useState([]); 
   const [roomKey, setRoomKey] = useState("init-key-123");
 
   // --- GAME STATE ---
@@ -29,9 +33,10 @@ export const ChatProvider = ({ children }) => {
       🔐 ENCRYPTION LOGIC
   =========================== */
   
-  // Generates a deterministic key so all users in the same room share the same encryption
+  // SHA256 ensures the key is consistent for everyone in the same room
   const generateKeyFromRoom = (id) => {
-  return CryptoJS.SHA256(id).toString();};
+    return CryptoJS.SHA256(id).toString();
+  };
 
   const encrypt = (msg) => {
     try {
@@ -45,9 +50,10 @@ export const ChatProvider = ({ children }) => {
     try {
       const bytes = CryptoJS.AES.decrypt(cipher, roomKey);
       const decoded = bytes.toString(CryptoJS.enc.Utf8);
+      // If decryption fails (wrong key), show the specific error message
       return decoded || "--- Decryption Failed ---";
     } catch (e) {
-      return "--- Encrypted Message ---";
+      return "--- Decryption Failed ---";
     }
   };
 
@@ -56,20 +62,20 @@ export const ChatProvider = ({ children }) => {
   =========================== */
 
   const joinRoom = (targetRoomId, chosenIdentity) => {
-  if (!targetRoomId || !chosenIdentity) return;
+    if (!targetRoomId || !chosenIdentity) return;
 
-  // 1. Set the key FIRST
-  const key = generateKeyFromRoom(targetRoomId);
-  setRoomKey(key);
+    // 1. Set the encryption key immediately
+    const key = generateKeyFromRoom(targetRoomId);
+    setRoomKey(key);
 
-  // 2. Then set the room state
-  setRoomId(targetRoomId);
-  setUsername(chosenIdentity);
-  setMessages([]);
+    // 2. Update local state
+    setRoomId(targetRoomId);
+    setUsername(chosenIdentity);
+    setMessages([]);
 
-  // 3. Emit to socket
-  socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
-};
+    // 3. Emit to socket server
+    socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
+  };
 
   /* ===========================
       💬 MESSAGING
@@ -89,7 +95,7 @@ export const ChatProvider = ({ children }) => {
 
     socket.emit("send-message", messageData);
 
-    // Optimistic UI: Add your own message immediately
+    // Add your own message locally (decrypted) for instant UI feedback
     setMessages((prev) => [
       ...prev,
       { ...messageData, message: text }
@@ -102,7 +108,7 @@ export const ChatProvider = ({ children }) => {
 
   const sendGameRequest = (gameId) => {
     socket.emit("send-game-request", { roomId, gameId, username });
-    setActiveGame(gameId); // For the requester, open game immediately
+    setActiveGame(gameId); 
   };
 
   const updateScore = (newScore) => {
@@ -121,11 +127,8 @@ export const ChatProvider = ({ children }) => {
 
   useEffect(() => {
     const handleReceiveMessage = (msg) => {
-      // Don't process messages from other rooms
       if (msg.roomId !== roomId) return;
-      
-      // Don't add your own message again (already added optimistically)
-      if (msg.username === username) return;
+      if (msg.username === username) return; // Ignore your own broadcast
 
       const decrypted = decrypt(msg.message);
       setMessages((prev) => [
@@ -151,7 +154,7 @@ export const ChatProvider = ({ children }) => {
       socket.off("online-users", handleOnlineUsers);
       socket.off("start-game", handleGameStart);
     };
-  }, [roomId, roomKey, username]); // Dependencies ensure listeners stay in sync with identity
+  }, [roomId, roomKey, username]); 
 
   return (
     <ChatContext.Provider
@@ -164,7 +167,6 @@ export const ChatProvider = ({ children }) => {
         joinRoom,
         sendMessage,
         socket,
-        // Game Exports
         activeGame,
         scores,
         updateScore,
