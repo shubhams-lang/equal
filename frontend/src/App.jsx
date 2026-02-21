@@ -253,5 +253,7 @@ function App() {
     </div>
   );
 }
-
+<div className="text-white">
+  Room: {roomId}
+</div>
 export default App;
