@@ -26,7 +26,7 @@ export const ChatProvider = ({ children }) => {
   /* =============================
      GAME MODE / MATCHMAKING
   ============================= */
-  const [gameMode, setGameMode] = useState("casual"); // casual | ranked
+  const [gameMode, setGameMode] = useState("casual");
   const [isMatchmaking, setIsMatchmaking] = useState(false);
   const [showMatchIntro, setShowMatchIntro] = useState(false);
 
@@ -56,7 +56,7 @@ export const ChatProvider = ({ children }) => {
   );
 
   /* =============================
-     JOIN ROOM (separate effect)
+     JOIN ROOM
   ============================= */
   useEffect(() => {
     if (roomId) {
@@ -65,7 +65,7 @@ export const ChatProvider = ({ children }) => {
   }, [roomId, socket, username]);
 
   /* =============================
-     GLOBAL SOCKET LISTENERS
+     SOCKET LISTENERS
   ============================= */
   useEffect(() => {
     if (!socket) return;
@@ -83,7 +83,7 @@ export const ChatProvider = ({ children }) => {
       if (data.scores) setScores(data.scores);
     });
 
-    /* --- MESSAGE RECEIVE --- */
+    /* --- RECEIVE MESSAGE --- */
     socket.on("receive-message", (msg) => {
       setMessages((prev) => [...prev, msg]);
       setIsOpponentTyping(false);
@@ -134,8 +134,11 @@ export const ChatProvider = ({ children }) => {
       }
     });
 
-    /* --- PUBLIC MATCH FOUND --- */
+    /* --- PUBLIC MATCH FOUND (FIXED) --- */
     socket.on("public-match-found", ({ roomId, opponentName }) => {
+      // ✅ ONLY allow if user actively joined matchmaking
+      if (!isMatchmaking) return;
+
       setRoomId(roomId);
       setOpponent(opponentName);
       setIsMatchmaking(false);
@@ -149,10 +152,10 @@ export const ChatProvider = ({ children }) => {
       socket.off("score-update");
       socket.off("public-match-found");
     };
-  }, [socket, username]);
+  }, [socket, username, isMatchmaking]);
 
   /* =============================
-     TYPING (Debounced)
+     TYPING SYSTEM
   ============================= */
   const typingTimeout = useRef(null);
 
@@ -174,7 +177,7 @@ export const ChatProvider = ({ children }) => {
   };
 
   /* =============================
-     SOUND SYSTEM
+     SOUND
   ============================= */
   const playSound = (file) => {
     const audio = new Audio(`/sounds/${file}`);
@@ -213,7 +216,7 @@ export const ChatProvider = ({ children }) => {
   };
 
   /* =============================
-     GAME FLOW ACTIONS
+     GAME ACTIONS
   ============================= */
   const sendGameRequest = (gameId) => {
     setPendingInvite({
@@ -323,7 +326,6 @@ export const ChatProvider = ({ children }) => {
         scores,
         isOpponentTyping,
 
-        // Mode / matchmaking
         gameMode,
         setGameMode,
         isMatchmaking,
@@ -331,7 +333,6 @@ export const ChatProvider = ({ children }) => {
         leavePublicQueue,
         showMatchIntro,
 
-        // Actions
         setTypingStatus,
         updateScore,
         sendImage,
