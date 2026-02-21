@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
-// 🔥 Updated with your specific Render URL
+// 🔥 Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com/";
 
 const socket = io(SOCKET_URL, {
@@ -14,31 +14,33 @@ const socket = io(SOCKET_URL, {
 });
 
 export const ChatProvider = ({ children }) => {
-  const [username] = useState(
-    "User" + Math.floor(Math.random() * 1000)
-  );
-
-  const [rooms, setRooms] = useState([]);
-  const [activeRoom, setActiveRoom] = useState(null);
+  // --- IDENTITY & ROOM STATE ---
+  const [username, setUsername] = useState(""); 
+  const [roomId, setRoomId] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [typingUsers, setTypingUsers] = useState([]);
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  
-  // Set a base key so encryption doesn't crash if roomKey is empty
-  const [roomKey, setRoomKey] = useState("init-key-123"); 
-  const typingTimeout = useRef(null);
+  const [users, setUsers] = useState([]); // Maps to online-users from server
+  const [roomKey, setRoomKey] = useState("init-key-123");
+
+  // --- GAME STATE ---
+  const [activeGame, setActiveGame] = useState(null);
+  const [scores, setScores] = useState({});
 
   /* ===========================
-      🔐 ENCRYPTION
+      🔐 ENCRYPTION LOGIC
   =========================== */
-
-  // Generates a key based on the Room ID so all users in the same room use the same key
-  const generateKeyFromRoom = (roomId) => {
-    return CryptoJS.SHA256(roomId + "salt-secret").toString();
+  
+  // Generates a deterministic key so all users in the same room share the same encryption
+  const generateKeyFromRoom = (id) => {
+    return CryptoJS.SHA256(id + "salt-secret-99").toString();
   };
 
-  const encrypt = (msg) =>
-    CryptoJS.AES.encrypt(msg, roomKey).toString();
+  const encrypt = (msg) => {
+    try {
+      return CryptoJS.AES.encrypt(msg, roomKey).toString();
+    } catch (e) {
+      return msg;
+    }
+  };
 
   const decrypt = (cipher) => {
     try {
@@ -51,80 +53,66 @@ export const ChatProvider = ({ children }) => {
   };
 
   /* ===========================
-      🚪 ROOM LOGIC
+      🚪 ROOM ACTIONS
   =========================== */
 
-  // 1. New function to explicitly CREATE a unique room
-  const createRoom = () => {
-    const newRoomId = uuidv4();
-    joinRoom(newRoomId);
-    return newRoomId; 
-  };
+  const joinRoom = (targetRoomId, chosenIdentity) => {
+    if (!targetRoomId || !chosenIdentity) return;
 
-  // 2. Modified join function
-  const joinRoom = (roomId) => {
-    if (!roomId) return;
-
-    if (!rooms.includes(roomId)) {
-      setRooms(prev => [...prev, roomId]);
-    }
-
-    setActiveRoom(roomId);
+    setRoomId(targetRoomId);
+    setUsername(chosenIdentity);
     setMessages([]);
 
-    // We set the encryption key BASED on the roomId so everyone in the room 
-    // can decrypt each other's messages automatically.
-    const key = generateKeyFromRoom(roomId);
+    // Set the encryption key for this specific room
+    const key = generateKeyFromRoom(targetRoomId);
     setRoomKey(key);
 
-    socket.emit("join-room", { roomId, username });
+    // Join via Socket
+    socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
   };
 
   /* ===========================
-      💬 SEND MESSAGE
+      💬 MESSAGING
   =========================== */
 
   const sendMessage = (text) => {
-    if (!text || !activeRoom) return;
+    if (!text || !roomId) return;
 
     const encrypted = encrypt(text);
 
     const messageData = {
       id: uuidv4(),
-      roomId: activeRoom,
+      roomId,
       username,
       message: encrypted,
-      status: "sent",
-      reactions: {}
     };
 
     socket.emit("send-message", messageData);
 
-    setMessages(prev => [
+    // Optimistic UI: Add your own message immediately
+    setMessages((prev) => [
       ...prev,
       { ...messageData, message: text }
     ]);
   };
 
   /* ===========================
-      ✍️ TYPING & REACTIONS (Kept same)
+      🎮 GAME LOGIC
   =========================== */
 
-  const handleTyping = () => {
-    socket.emit("typing", { roomId: activeRoom, username });
-    clearTimeout(typingTimeout.current);
-    typingTimeout.current = setTimeout(() => {
-      socket.emit("stop-typing", { roomId: activeRoom, username });
-    }, 1000);
+  const sendGameRequest = (gameId) => {
+    socket.emit("send-game-request", { roomId, gameId, username });
+    setActiveGame(gameId); // For the requester, open game immediately
   };
 
-  const addReaction = (messageId, emoji) => {
-    socket.emit("add-reaction", {
-      roomId: activeRoom,
-      messageId,
-      emoji,
-      username
-    });
+  const updateScore = (newScore) => {
+    setScores((prev) => ({ ...prev, [username]: newScore }));
+    socket.emit("update-score", { roomId, username, score: newScore });
+  };
+
+  const closeGame = () => {
+    setActiveGame(null);
+    socket.emit("leave-game", { roomId, username });
   };
 
   /* ===========================
@@ -132,53 +120,58 @@ export const ChatProvider = ({ children }) => {
   =========================== */
 
   useEffect(() => {
-    socket.on("receive-message", (msg) => {
-      // Logic to only show messages meant for this room
-      if (msg.roomId !== activeRoom) return;
+    const handleReceiveMessage = (msg) => {
+      // Don't process messages from other rooms
+      if (msg.roomId !== roomId) return;
+      
+      // Don't add your own message again (already added optimistically)
+      if (msg.username === username) return;
 
       const decrypted = decrypt(msg.message);
-      setMessages(prev => [
+      setMessages((prev) => [
         ...prev,
-        { ...msg, message: decrypted, status: "delivered" }
+        { ...msg, message: decrypted }
       ]);
-    });
-
-    socket.on("user-typing", (user) => {
-      setTypingUsers(prev => (prev.includes(user) ? prev : [...prev, user]));
-    });
-
-    socket.on("user-stop-typing", (user) => {
-      setTypingUsers(prev => prev.filter(u => u !== user));
-    });
-
-    socket.on("online-users", (users) => {
-      setOnlineUsers(users);
-    });
-
-    // Cleanup listeners on unmount or when roomKey changes
-    return () => {
-      socket.off("receive-message");
-      socket.off("user-typing");
-      socket.off("user-stop-typing");
-      socket.off("online-users");
     };
-  }, [roomKey, activeRoom]); 
+
+    const handleOnlineUsers = (userList) => {
+      setUsers(userList);
+    };
+
+    const handleGameStart = (gameId) => {
+      setActiveGame(gameId);
+    };
+
+    socket.on("receive-message", handleReceiveMessage);
+    socket.on("online-users", handleOnlineUsers);
+    socket.on("start-game", handleGameStart);
+
+    return () => {
+      socket.off("receive-message", handleReceiveMessage);
+      socket.off("online-users", handleOnlineUsers);
+      socket.off("start-game", handleGameStart);
+    };
+  }, [roomId, roomKey, username]); // Dependencies ensure listeners stay in sync with identity
 
   return (
-    <ChatContext.Provider value={{
-      username,
-      rooms,
-      activeRoom,
-      messages,
-      typingUsers,
-      onlineUsers,
-      joinRoom,
-      createRoom, // Added to exports
-      sendMessage,
-      handleTyping,
-      addReaction,
-      socket
-    }}>
+    <ChatContext.Provider
+      value={{
+        username,
+        roomId,
+        setRoomId,
+        messages,
+        users,
+        joinRoom,
+        sendMessage,
+        socket,
+        // Game Exports
+        activeGame,
+        scores,
+        updateScore,
+        sendGameRequest,
+        closeGame,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );
