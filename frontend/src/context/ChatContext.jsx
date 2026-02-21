@@ -6,7 +6,7 @@ import { v4 as uuidv4 } from "uuid";
 export const ChatContext = createContext();
 
 // 🔥 IMPORTANT: Replace with your Render backend URL
-const SOCKET_URL = "https://your-backend-name.onrender.com";
+const SOCKET_URL = "https://equal.onrender.com/";
 
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
