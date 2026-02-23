@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
+// Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com";
 
 const socket = io(SOCKET_URL, {
@@ -12,15 +13,23 @@ const socket = io(SOCKET_URL, {
 });
 
 export const ChatProvider = ({ children }) => {
+  // --- AUTH & ROOM STATE ---
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState(null);
   const [users, setUsers] = useState([]);
   const [opponent, setOpponent] = useState(null);
+
+  // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
   const typingTimeoutRef = useRef(null);
+
+  // --- GAME & STATS STATE ---
   const [activeGame, setActiveGame] = useState(null);
-  const [scores, setScores] = useState({});
+  const [scores, setScores] = useState({}); // Round points (0-10)
+  const [leaderboard, setLeaderboard] = useState({}); // Total Match Wins
+  const [streak, setStreak] = useState({ lastWinner: null, count: 0 }); // Fire Streak 🔥
+  const [settings, setSettings] = useState({ winTarget: 10 }); // Game Config
 
   /* ===========================
       🚪 ROOM & IDENTITY
@@ -72,48 +81,51 @@ export const ChatProvider = ({ children }) => {
       🎮 GAME SYNCHRONIZATION
      =========================== */
 
+  // Request a specific game (from Lobby)
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
-    // Reset scores whenever a brand new game type is picked
-    resetScores();
+    resetScores(); // Always start a fresh game at 0-0
     socket.emit("start-game", { roomId, gameId });
   };
 
-  // NEW: Reset scores to 0 locally and on server
+  // Reset round points back to zero
   const resetScores = useCallback(() => {
-    const freshScores = {};
-    users.forEach(u => freshScores[u] = 0);
-    setScores(freshScores);
+    if (!roomId) return;
     socket.emit("reset-scores", { roomId });
-  }, [roomId, users]);
+  }, [roomId]);
 
-  // FIXED: Logic for simultaneous rematch
+  // Handle the "Play Again" button (Rematch)
   const sendRematchRequest = () => {
     if (!roomId || !activeGame) return;
-    
-    // 1. Reset the points
     resetScores();
-    
-    // 2. Send a specific signal that the game components listen for to clear their boards
+    // Signal both clients to clear internal board states
     socket.emit("game-data", { roomId, type: "GAME_RESTART_SIGNAL" });
-    
-    // 3. Re-trigger the game start to ensure both players see the overlay disappear
+    // Force the game overlay to re-initialize
     socket.emit("start-game", { roomId, gameId: activeGame });
+  };
+
+  // Update round score (Race to 10)
+  const updateScore = (winnerName) => {
+    if (!roomId) return;
+    socket.emit("update-score", { roomId, username: winnerName });
+  };
+
+  // Update total match victories (Trophies 🏆)
+  const recordMatchWin = (winnerName) => {
+    if (!roomId) return;
+    socket.emit("match-victory", { roomId, username: winnerName });
+  };
+
+  // Update win target settings (Host only)
+  const updateWinTarget = (newTarget) => {
+    if (!roomId) return;
+    socket.emit("update-settings", { roomId, settings: { winTarget: newTarget } });
   };
 
   const closeGame = () => {
     if (!roomId) return;
     socket.emit("leave-game", { roomId });
     setActiveGame(null);
-    setScores({});
-  };
-
-  const updateScore = (winnerName) => {
-    setScores((prev) => ({
-      ...prev,
-      [winnerName]: (prev[winnerName] || 0) + 1,
-    }));
-    socket.emit("update-score", { roomId, username: winnerName });
   };
 
   /* ===========================
@@ -121,54 +133,46 @@ export const ChatProvider = ({ children }) => {
      =========================== */
 
   useEffect(() => {
+    // 💬 Chat Listeners
     socket.on("receive-message", (msg) => {
       if (msg.username !== username) setMessages((prev) => [...prev, msg]);
     });
-
     socket.on("online-users", (userList) => setUsers(userList));
-
-    socket.on("user-typing", ({ username: typingName }) => {
-      if (typingName !== username) setTypingUser(typingName);
-    });
-
+    socket.on("user-typing", ({ username: tName }) => { if (tName !== username) setTypingUser(tName); });
     socket.on("user-stop-typing", () => setTypingUser(null));
 
-    socket.on("game-started", (gameId) => {
-      setActiveGame(gameId);
-    });
-
+    // 🎮 Game State Listeners
+    socket.on("game-started", (gameId) => setActiveGame(gameId));
     socket.on("game-closed", () => {
       setActiveGame(null);
       setScores({});
     });
 
-    socket.on("score-updated", (data) => {
-      // Merges the new score state from server
-      setScores((prev) => ({ ...prev, ...data }));
-    });
-
-    // NEW: Listen for score resets from opponent
-    socket.on("scores-reset-confirmed", () => {
-      const freshScores = {};
-      users.forEach(u => freshScores[u] = 0);
-      setScores(freshScores);
+    // 📊 Score & Stats Listeners
+    socket.on("score-updated", (data) => setScores(data));
+    socket.on("scores-reset-confirmed", (data) => setScores(data));
+    socket.on("settings-updated", (data) => setSettings(data));
+    socket.on("leaderboard-updated", (data) => {
+      setLeaderboard(data.leaderboard);
+      setStreak(data.streak);
     });
 
     return () => {
       socket.off("receive-message");
       socket.off("online-users");
-      socket.off("user-typing");
-      socket.off("user-stop-typing");
       socket.off("game-started");
       socket.off("game-closed");
       socket.off("score-updated");
       socket.off("scores-reset-confirmed");
+      socket.off("settings-updated");
+      socket.off("leaderboard-updated");
     };
-  }, [username, roomId, users]);
+  }, [username, roomId]);
 
   return (
     <ChatContext.Provider
       value={{
+        // State
         username,
         roomId,
         setRoomId,
@@ -178,6 +182,11 @@ export const ChatProvider = ({ children }) => {
         typingUser,
         activeGame,
         scores,
+        leaderboard,
+        streak,
+        settings,
+        socket,
+        // Actions
         joinRoom,
         sendMessage,
         handleTyping,
@@ -185,8 +194,9 @@ export const ChatProvider = ({ children }) => {
         sendRematchRequest,
         closeGame,
         updateScore,
-        resetScores, // Now available in game components
-        socket,
+        recordMatchWin,
+        updateWinTarget,
+        resetScores
       }}
     >
       {children}
