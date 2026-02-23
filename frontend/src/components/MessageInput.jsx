@@ -1,154 +1,171 @@
-import React, { useState, useContext, useRef } from "react";
+import React, { useState, useRef, useContext, useEffect } from "react";
 import { ChatContext } from "../context/ChatContext";
+import { STICKER_PACKS } from "../constants/stickers";
 import { 
   PaperAirplaneIcon, 
-  PhotoIcon, 
-  MicrophoneIcon, 
   FaceSmileIcon, 
-  CameraIcon,
-  StopIcon 
+  CameraIcon, 
+  MicrophoneIcon, 
+  StopIcon,
+  XMarkIcon 
 } from "@heroicons/react/24/outline";
 
 export default function MessageInput() {
-  const { sendMessage, handleTyping, createCustomSticker, myStickers } = useContext(ChatContext);
-  const [text, setText] = useState("");
-  const [focused, setFocused] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [showStickers, setShowStickers] = useState(false);
+  const { sendMessage, socket, roomId, username } = useContext(ChatContext);
   
-  const fileInputRef = useRef(null);
-  const cameraInputRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const [text, setText] = useState("");
+  const [showStickers, setShowStickers] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showCamera, setShowCamera] = useState(false);
+  
+  const videoRef = useRef(null);
+  const mediaRecorder = useRef(null);
+  const audioChunks = useRef([]);
 
-  // --- Send Logic ---
+  // --- 1. TYPING LOGIC ---
+  const handleInputChange = (e) => {
+    setText(e.target.value);
+    if (socket && roomId) {
+      socket.emit("typing", { roomId, username: e.target.value ? username : null });
+    }
+  };
+
+  // --- 2. TEXT SENDING ---
   const handleSendText = (e) => {
-    if (e) e.preventDefault();
+    e.preventDefault();
     if (!text.trim()) return;
-    sendMessage(text, "text");
+    sendMessage({ type: "text", content: text });
     setText("");
+    socket.emit("typing", { roomId, username: null });
   };
 
-  // --- Media Processing (Images/Videos/Camera) ---
-  const handleFileChange = (e, isSticker = false) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target.result;
-      if (isSticker) {
-        createCustomSticker(file);
-      } else {
-        const type = file.type.startsWith("video") ? "video" : "image";
-        sendMessage(base64, type);
-      }
-    };
-    reader.readAsDataURL(file);
+  // --- 3. STICKER SENDING ---
+  const sendSticker = (url) => {
+    sendMessage({ type: "sticker", content: url });
+    setShowStickers(false);
   };
 
-  // --- Voice Message Logic ---
+  // --- 4. CAMERA LOGIC ---
+  const startCamera = async () => {
+    setShowCamera(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      if (videoRef.current) videoRef.current.srcObject = stream;
+    } catch (err) {
+      alert("Camera access denied");
+      setShowCamera(false);
+    }
+  };
+
+  const capturePhoto = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = videoRef.current.videoWidth;
+    canvas.height = videoRef.current.videoHeight;
+    canvas.getContext("2d").drawImage(videoRef.current, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg");
+    
+    sendMessage({ type: "image", content: dataUrl });
+    stopCamera();
+  };
+
+  const stopCamera = () => {
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    }
+    setShowCamera(false);
+  };
+
+  // --- 5. VOICE RECORDING ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorderRef.current = new MediaRecorder(stream);
-      audioChunksRef.current = [];
+      mediaRecorder.current = new MediaRecorder(stream);
+      audioChunks.current = [];
 
-      mediaRecorderRef.current.ondataavailable = (e) => audioChunksRef.current.push(e.data);
-      mediaRecorderRef.current.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+      mediaRecorder.current.ondataavailable = (e) => audioChunks.current.push(e.data);
+      mediaRecorder.current.onstop = () => {
+        const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
         const reader = new FileReader();
         reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => sendMessage(reader.result, "audio");
-        stream.getTracks().forEach(track => track.stop());
+        reader.onloadend = () => {
+          sendMessage({ type: "audio", content: reader.result });
+        };
       };
 
-      mediaRecorderRef.current.start();
+      mediaRecorder.current.start();
       setIsRecording(true);
-    } catch (err) {
-      alert("Microphone access is required for voice messages.");
-    }
+    } catch (err) { alert("Microphone access denied"); }
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-    }
+    mediaRecorder.current?.stop();
+    setIsRecording(false);
   };
 
   return (
-    <div className="relative space-y-3">
+    <div className="relative w-full">
       
-      {/* Sticker Tray */}
-      {showStickers && (
-        <div className="absolute bottom-full mb-4 left-0 w-72 bg-[#1e293b]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl z-50 animate-in slide-in-from-bottom-2">
-          <div className="flex justify-between items-center mb-3">
-            <span className="text-[10px] font-black uppercase text-slate-400">Custom Stickers</span>
-            <label className="cursor-pointer text-[10px] bg-blue-500/20 text-blue-400 border border-blue-400/30 px-2 py-1 rounded hover:bg-blue-500 hover:text-white transition">
-              NEW +
-              <input type="file" hidden accept="image/*" onChange={(e) => handleFileChange(e, true)} />
-            </label>
+      {/* CAMERA OVERLAY */}
+      {showCamera && (
+        <div className="absolute bottom-20 left-0 w-full max-w-sm bg-black rounded-3xl overflow-hidden border-2 border-blue-500 shadow-2xl z-50">
+          <video ref={videoRef} autoPlay playsInline className="w-full h-auto" />
+          <div className="p-4 flex justify-around bg-black/80">
+            <button onClick={stopCamera} className="p-2 bg-white/10 rounded-full"><XMarkIcon className="w-6 h-6" /></button>
+            <button onClick={capturePhoto} className="p-4 bg-white rounded-full"><div className="w-4 h-4 bg-red-500 rounded-full" /></button>
           </div>
-          <div className="grid grid-cols-4 gap-2 max-h-48 overflow-y-auto">
-            {myStickers?.map((src, i) => (
-              <img 
-                key={i} 
-                src={src} 
-                onClick={() => { sendMessage(src, "sticker"); setShowStickers(false); }}
-                className="w-full h-12 object-cover rounded-lg cursor-pointer hover:scale-110 transition border border-white/5"
-              />
+        </div>
+      )}
+
+      {/* STICKER TRAY */}
+      {showStickers && (
+        <div className="absolute bottom-20 left-0 w-full max-w-xs bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-50 animate-in slide-in-from-bottom-2">
+          <div className="grid grid-cols-4 gap-3 p-4 max-h-60 overflow-y-auto custom-scrollbar">
+            {STICKER_PACKS.flatMap(pack => pack.stickers).map((sticker) => (
+              <button key={sticker.id} onClick={() => sendSticker(sticker.url)} className="hover:scale-110 transition-transform">
+                <img src={sticker.url} alt="sticker" className="w-full h-auto" />
+              </button>
             ))}
           </div>
         </div>
       )}
 
-      <div className="flex items-center gap-2">
-        {/* Attachment Icons */}
-        <div className="flex items-center gap-1 bg-white/5 rounded-2xl p-1 border border-white/10">
-          <button type="button" onClick={() => setShowStickers(!showStickers)} className="p-2 text-slate-400 hover:text-white transition"><FaceSmileIcon className="w-5 h-5" /></button>
-          <button type="button" onClick={() => fileInputRef.current.click()} className="p-2 text-slate-400 hover:text-white transition"><PhotoIcon className="w-5 h-5" /></button>
-          <button type="button" onClick={() => cameraInputRef.current.click()} className="p-2 text-slate-400 hover:text-white transition"><CameraIcon className="w-5 h-5" /></button>
-        </div>
+      {/* MAIN INPUT BAR */}
+      <form onSubmit={handleSendText} className="flex items-center gap-2 bg-black/20 p-2 rounded-2xl border border-white/5">
+        
+        <button type="button" onClick={() => setShowStickers(!showStickers)} className="p-2 text-slate-400 hover:text-white transition-colors">
+          <FaceSmileIcon className="w-6 h-6" />
+        </button>
 
-        {/* Hidden Inputs */}
-        <input type="file" hidden ref={fileInputRef} accept="image/*,video/*" onChange={handleFileChange} />
-        <input type="file" hidden ref={cameraInputRef} accept="image/*" capture="user" onChange={handleFileChange} />
+        <button type="button" onClick={startCamera} className="p-2 text-slate-400 hover:text-white transition-colors">
+          <CameraIcon className="w-6 h-6" />
+        </button>
 
-        {/* Main Input Wrapper */}
-        <div className={`flex-1 flex items-center px-4 py-3 rounded-2xl transition-all backdrop-blur-xl border ${
-          focused ? "bg-white/10 border-blue-400/40 shadow-[0_0_20px_rgba(59,130,246,0.2)]" : "bg-white/5 border-white/10"
-        }`}>
-          <input
-            value={text}
-            onChange={(e) => { setText(e.target.value); handleTyping(); }}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            onKeyDown={(e) => e.key === "Enter" && handleSendText()}
-            placeholder={isRecording ? "Recording voice note..." : "Type message..."}
-            disabled={isRecording}
-            className="flex-1 bg-transparent outline-none text-sm placeholder-slate-500"
-          />
-        </div>
+        <input
+          type="text"
+          value={text}
+          onChange={handleInputChange}
+          placeholder={isRecording ? "Recording voice..." : "Type a message..."}
+          disabled={isRecording}
+          className="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder:text-slate-600 px-2"
+        />
 
-        {/* Voice / Send Action */}
-        {!text.trim() ? (
-          <button
-            type="button"
-            onClick={isRecording ? stopRecording : startRecording}
-            className={`p-3 rounded-2xl transition-all ${isRecording ? "bg-red-500 animate-pulse" : "bg-white/5 text-slate-400 hover:text-white border border-white/10"}`}
+        {text.trim() ? (
+          <button type="submit" className="p-3 bg-blue-600 rounded-xl text-white shadow-lg shadow-blue-600/20">
+            <PaperAirplaneIcon className="w-5 h-5" />
+          </button>
+        ) : (
+          <button 
+            type="button" 
+            onMouseDown={startRecording} 
+            onMouseUp={stopRecording}
+            onTouchStart={startRecording}
+            onTouchEnd={stopRecording}
+            className={`p-3 rounded-xl transition-all ${isRecording ? "bg-red-500 animate-pulse" : "bg-white/5 text-slate-400"}`}
           >
             {isRecording ? <StopIcon className="w-5 h-5 text-white" /> : <MicrophoneIcon className="w-5 h-5" />}
           </button>
-        ) : (
-          <button
-            onClick={handleSendText}
-            className="p-3 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all shadow-lg shadow-blue-500/30"
-          >
-            <PaperAirplaneIcon className="w-5 h-5" />
-          </button>
         )}
-      </div>
+      </form>
     </div>
   );
 }
