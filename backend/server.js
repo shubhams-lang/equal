@@ -4,6 +4,9 @@ import { Server } from "socket.io";
 import cors from "cors";
 import webpush from "web-push";
 import { v4 as uuidv4 } from "uuid";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const app = express();
 app.use(cors());
@@ -11,9 +14,10 @@ app.use(express.json());
 
 const server = http.createServer(app);
 
+// Socket.io Setup
 const io = new Server(server, {
   cors: {
-    origin: "https://anonymous-chat-kohl-iota.vercel.app", 
+    origin: ["https://anonymous-chat-kohl-iota.vercel.app", "http://localhost:5173"],
     methods: ["GET", "POST"]
   }
 });
@@ -39,24 +43,28 @@ let subscriptions = [];
    =========================== */
 const onlineUsers = {}; // { roomId: [usernames] }
 const activeRooms = new Set(); 
-const socketToUser = new Map(); // Maps socket.id -> { roomId, username }
+const socketToUser = new Map(); // Track socket.id -> { roomId, username }
 
 /* ===========================
     HTTP REST API
    =========================== */
 
+// 1. Create Room
 app.post("/create-room", (req, res) => {
   const roomId = uuidv4().substring(0, 8);
   activeRooms.add(roomId);
+  console.log(`Room Created: ${roomId}`);
   res.json({ roomId });
 });
 
+// 2. Room Verification
 app.get("/room/:id", (req, res) => {
   const { id } = req.params;
   const exists = activeRooms.has(id) || (onlineUsers[id] && onlineUsers[id].length > 0);
   res.json({ exists });
 });
 
+// 3. Push Subscription
 app.post("/subscribe", (req, res) => {
   subscriptions.push(req.body);
   res.status(201).json({ success: true });
@@ -73,9 +81,16 @@ io.on("connection", (socket) => {
 
   // --- JOIN ROOM ---
   socket.on("join-room", ({ roomId, username }) => {
+    // Leave other rooms first
+    socket.rooms.forEach((room) => {
+      if (room !== socket.id) socket.leave(room);
+    });
+
     socket.join(roomId);
     
-    // Store user data for disconnect cleanup
+    // Store metadata on socket and in our map
+    socket.username = username;
+    socket.roomId = roomId;
     socketToUser.set(socket.id, { roomId, username });
 
     if (!onlineUsers[roomId]) onlineUsers[roomId] = [];
@@ -83,10 +98,8 @@ io.on("connection", (socket) => {
       onlineUsers[roomId].push(username);
     }
 
-    // 1. Send updated list to everyone
+    // Notify others and update list
     io.to(roomId).emit("online-users", onlineUsers[roomId]);
-    
-    // 2. Trigger "System Message" for others
     socket.to(roomId).emit("user-online", username);
     
     console.log(`${username} joined room ${roomId}`);
@@ -114,7 +127,6 @@ io.on("connection", (socket) => {
 
   // --- TYPING INDICATORS ---
   socket.on("typing", ({ roomId, username }) => {
-    // Tells everyone in the room EXCEPT the sender that 'username' is typing
     socket.to(roomId).emit("user-typing", { username });
   });
 
@@ -129,24 +141,26 @@ io.on("connection", (socket) => {
     if (userData) {
       const { roomId, username } = userData;
 
-      // 1. Update online users list
       if (onlineUsers[roomId]) {
         onlineUsers[roomId] = onlineUsers[roomId].filter((u) => u !== username);
         
-        // 2. Notify room: Update user list and send "Offline" system trigger
+        // Update room list and trigger "offline" system notification
         io.to(roomId).emit("online-users", onlineUsers[roomId]);
         socket.to(roomId).emit("user-offline", username);
 
-        // Cleanup empty rooms
-        if (onlineUsers[roomId].length === 0) delete onlineUsers[roomId];
+        if (onlineUsers[roomId].length === 0) {
+          delete onlineUsers[roomId];
+        }
       }
-      
       socketToUser.delete(socket.id);
     }
     console.log("User disconnected:", socket.id);
   });
 });
 
+/* ===========================
+    START SERVER
+   =========================== */
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
