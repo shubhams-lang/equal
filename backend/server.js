@@ -13,7 +13,7 @@ const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "https://anonymous-chat-kohl-iota.vercel.app/", // In production, replace with your frontend URL
+    origin: "https://anonymous-chat-kohl-iota.vercel.app", 
     methods: ["GET", "POST"]
   }
 });
@@ -21,16 +21,16 @@ const io = new Server(server, {
 /* ===========================
     PUSH NOTIFICATION CONFIG
    =========================== */
-// Note: Replace these with real keys using 'npx web-push generate-vapid-keys'
-// server.js
 const VAPID_PUBLIC = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE = process.env.VAPID_PRIVATE_KEY;
 
-webpush.setVapidDetails(
-  "mailto:shubham.s@semonks.com",
-  VAPID_PUBLIC,
-  VAPID_PRIVATE
-);
+if (VAPID_PUBLIC && VAPID_PRIVATE) {
+  webpush.setVapidDetails(
+    "mailto:shubham.s@semonks.com",
+    VAPID_PUBLIC,
+    VAPID_PRIVATE
+  );
+}
 
 let subscriptions = [];
 
@@ -38,28 +38,25 @@ let subscriptions = [];
     STATE MANAGEMENT
    =========================== */
 const onlineUsers = {}; // { roomId: [usernames] }
-const activeRooms = new Set(); // Track created rooms
+const activeRooms = new Set(); 
+const socketToUser = new Map(); // Maps socket.id -> { roomId, username }
 
 /* ===========================
     HTTP REST API
    =========================== */
 
-// 1. Create Room Route (Called by your "Create Room" button)
 app.post("/create-room", (req, res) => {
-  const roomId = uuidv4().substring(0, 8); // Generate 8-char unique ID
+  const roomId = uuidv4().substring(0, 8);
   activeRooms.add(roomId);
-  console.log(`Room Created: ${roomId}`);
   res.json({ roomId });
 });
 
-// 2. Room Verification (Checks if a room exists before joining)
 app.get("/room/:id", (req, res) => {
   const { id } = req.params;
   const exists = activeRooms.has(id) || (onlineUsers[id] && onlineUsers[id].length > 0);
   res.json({ exists });
 });
 
-// 3. Push Notification Subscription
 app.post("/subscribe", (req, res) => {
   subscriptions.push(req.body);
   res.status(201).json({ success: true });
@@ -69,31 +66,27 @@ app.post("/subscribe", (req, res) => {
     SOCKET.IO LOGIC
    =========================== */
 
+
+
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
   // --- JOIN ROOM ---
   socket.on("join-room", ({ roomId, username }) => {
-    // Leave previous rooms to prevent message bleeding
-    socket.rooms.forEach((room) => {
-      if (room !== socket.id) socket.leave(room);
-    });
-
     socket.join(roomId);
-    socket.username = username;
-    socket.roomId = roomId;
+    
+    // Store user data for disconnect cleanup
+    socketToUser.set(socket.id, { roomId, username });
 
-    if (!onlineUsers[roomId]) {
-      onlineUsers[roomId] = [];
-    }
-
-    // Add user if not already in the list
+    if (!onlineUsers[roomId]) onlineUsers[roomId] = [];
     if (!onlineUsers[roomId].includes(username)) {
       onlineUsers[roomId].push(username);
     }
 
-    // Notify the room
+    // 1. Send updated list to everyone
     io.to(roomId).emit("online-users", onlineUsers[roomId]);
+    
+    // 2. Trigger "System Message" for others
     socket.to(roomId).emit("user-online", username);
     
     console.log(`${username} joined room ${roomId}`);
@@ -107,77 +100,54 @@ io.on("connection", (socket) => {
       timestamp: new Date().toISOString()
     };
 
-    io.to(data.roomId).emit("receive-message", messagePayload);
+    // Broadcast to everyone else in the room
+    socket.to(data.roomId).emit("receive-message", messagePayload);
 
-    // Optional: Send push notification to all subscribers
+    // Push Notifications
     subscriptions.forEach(sub => {
-      webpush.sendNotification(
-        sub,
-        JSON.stringify({
-          title: `New message from ${data.username}`,
-          body: data.message
-        })
-      ).catch(err => console.error("Push Error:", err));
+      webpush.sendNotification(sub, JSON.stringify({
+        title: `New message from ${data.username}`,
+        body: data.message
+      })).catch(err => console.error("Push Error:", err));
     });
   });
 
-  // --- TYPING & ACTIONS ---
+  // --- TYPING INDICATORS ---
   socket.on("typing", ({ roomId, username }) => {
-    socket.to(roomId).emit("user-typing", username);
+    // Tells everyone in the room EXCEPT the sender that 'username' is typing
+    socket.to(roomId).emit("user-typing", { username });
   });
 
   socket.on("stop-typing", ({ roomId, username }) => {
-    socket.to(roomId).emit("user-stop-typing", username);
-  });
-
-  socket.on("message-seen", ({ messageId, roomId }) => {
-    socket.to(roomId).emit("update-seen", { messageId });
-  });
-
-  socket.on("add-reaction", ({ roomId, messageId, emoji, username }) => {
-    socket.to(roomId).emit("update-reaction", { messageId, emoji, username });
-  });
-
-  // --- VOICE/RTC SIGNALING ---
-  socket.on("voice-offer", ({ offer, roomId }) => {
-    socket.to(roomId).emit("voice-offer", offer);
-  });
-
-  socket.on("voice-answer", ({ answer, roomId }) => {
-    socket.to(roomId).emit("voice-answer", answer);
-  });
-
-  socket.on("voice-candidate", ({ candidate, roomId }) => {
-    socket.to(roomId).emit("voice-candidate", candidate);
+    socket.to(roomId).emit("user-stop-typing", { username });
   });
 
   // --- DISCONNECT ---
   socket.on("disconnect", () => {
-    const { roomId, username } = socket;
+    const userData = socketToUser.get(socket.id);
 
-    if (roomId && onlineUsers[roomId]) {
-      // Remove user from the list
-      onlineUsers[roomId] = onlineUsers[roomId].filter((u) => u !== username);
+    if (userData) {
+      const { roomId, username } = userData;
 
-      // Update remaining users
-      io.to(roomId).emit("online-users", onlineUsers[roomId]);
-      socket.to(roomId).emit("user-offline", username);
+      // 1. Update online users list
+      if (onlineUsers[roomId]) {
+        onlineUsers[roomId] = onlineUsers[roomId].filter((u) => u !== username);
+        
+        // 2. Notify room: Update user list and send "Offline" system trigger
+        io.to(roomId).emit("online-users", onlineUsers[roomId]);
+        socket.to(roomId).emit("user-offline", username);
 
-      // Cleanup: remove room from memory if empty
-      if (onlineUsers[roomId].length === 0) {
-        // We keep activeRooms to allow people to rejoin via links
-        delete onlineUsers[roomId];
+        // Cleanup empty rooms
+        if (onlineUsers[roomId].length === 0) delete onlineUsers[roomId];
       }
+      
+      socketToUser.delete(socket.id);
     }
     console.log("User disconnected:", socket.id);
   });
 });
 
-/* ===========================
-    START SERVER
-   =========================== */
 const PORT = process.env.PORT || 5000;
-
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
