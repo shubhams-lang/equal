@@ -18,10 +18,16 @@ export const ChatProvider = ({ children }) => {
   const [users, setUsers] = useState([]);
   const [opponent, setOpponent] = useState(null);
 
-  // --- MESSAGING STATE ---
+  // --- MESSAGING & STICKER STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
-  const [myStickers, setMyStickers] = useState([]); 
+  
+  // Load custom stickers from localStorage on initialization
+  const [myStickers, setMyStickers] = useState(() => {
+    const saved = localStorage.getItem("custom_stickers");
+    return saved ? JSON.parse(saved) : [];
+  });
+  
   const typingTimeoutRef = useRef(null);
 
   // --- GAME & STATS STATE ---
@@ -51,19 +57,12 @@ export const ChatProvider = ({ children }) => {
   }, [users, username]);
 
   /* ===========================
-      💬 MESSAGING LOGIC (FIXED)
+      💬 MESSAGING & MEDIA
      =========================== */
 
-  /**
-   * FIXED: Uses destructuring to match MessageInput calls
-   * @param {Object} params - { content, type, metadata }
-   */
+  // Refactored to accept an object to prevent "Blank Screen" crashes
   const sendMessage = ({ content, type = "text", metadata = {} }) => {
-    // Prevent crash if data is missing or room isn't set
-    if (!content || !roomId) {
-      console.warn("Cannot send message: Missing content or Room ID");
-      return;
-    }
+    if (!content || !roomId) return;
 
     const messageData = {
       id: uuidv4(),
@@ -75,10 +74,7 @@ export const ChatProvider = ({ children }) => {
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    // Optimistic UI update: Show our own message immediately
     setMessages((prev) => [...prev, messageData]);
-    
-    // Emit to server
     socket.emit("send-message", messageData);
   };
 
@@ -91,44 +87,60 @@ export const ChatProvider = ({ children }) => {
     }, 2000);
   };
 
-  /* ===========================
-      🎮 GAME SYNCHRONIZATION
-     =========================== */
+  /**
+   * CUSTOM STICKER CREATION WITH COMPRESSION
+   */
+  const createCustomSticker = (file) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
 
-  const sendGameRequest = (gameId) => {
-    if (!roomId) return;
-    socket.emit("start-game", { roomId, gameId });
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+
+      img.onload = () => {
+        // Create an off-screen canvas for compression
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 320; // Ideal size for stickers
+        const scaleSize = MAX_WIDTH / img.width;
+        
+        canvas.width = MAX_WIDTH;
+        canvas.height = img.height * scaleSize;
+
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        // Compress to 70% quality JPEG to keep payload small
+        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+
+        // Update state and persistence
+        setMyStickers((prev) => {
+          const updated = [compressedBase64, ...prev].slice(0, 24); // Keep recent 24
+          localStorage.setItem("custom_stickers", JSON.stringify(updated));
+          return updated;
+        });
+      };
+    };
   };
+
+  const deleteCustomSticker = (index) => {
+    setMyStickers((prev) => {
+      const updated = prev.filter((_, i) => i !== index);
+      localStorage.setItem("custom_stickers", JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  /* ===========================
+      🎮 GAME & SOCKETS
+     =========================== */
 
   const resetScores = useCallback(() => {
     if (!roomId) return;
     socket.emit("reset-scores", { roomId });
   }, [roomId]);
 
-  const sendRematchRequest = () => {
-    if (!roomId || !activeGame) return;
-    resetScores();
-    socket.emit("game-data", { roomId, type: "GAME_RESTART_SIGNAL" });
-    socket.emit("start-game", { roomId, gameId: activeGame });
-  };
-
-  const updateScore = (winnerName) => {
-    if (!roomId) return;
-    socket.emit("update-score", { roomId, username: winnerName });
-  };
-
-  const closeGame = () => {
-    if (!roomId) return;
-    socket.emit("leave-game", { roomId });
-    setActiveGame(null);
-  };
-
-  /* ===========================
-      📡 GLOBAL SOCKET LISTENERS
-     =========================== */
-
   useEffect(() => {
-    // Listen for messages from others
     socket.on("receive-message", (msg) => {
       if (msg && msg.username !== username) {
         setMessages((prev) => [...prev, msg]);
@@ -136,23 +148,12 @@ export const ChatProvider = ({ children }) => {
     });
 
     socket.on("online-users", (userList) => setUsers(userList));
-    
     socket.on("user-typing", ({ username: tName }) => { 
       if (tName !== username) setTypingUser(tName); 
     });
-
     socket.on("user-stop-typing", () => setTypingUser(null));
     socket.on("game-started", (gameId) => setActiveGame(gameId));
-    
-    socket.on("game-closed", () => {
-      setActiveGame(null);
-      setScores({});
-    });
-
     socket.on("score-updated", (data) => setScores(data));
-    socket.on("scores-reset-confirmed", (data) => setScores(data));
-    socket.on("settings-updated", (data) => setSettings(data));
-    
     socket.on("leaderboard-updated", (data) => {
       setLeaderboard(data.leaderboard);
       setStreak(data.streak);
@@ -164,10 +165,7 @@ export const ChatProvider = ({ children }) => {
       socket.off("user-typing");
       socket.off("user-stop-typing");
       socket.off("game-started");
-      socket.off("game-closed");
       socket.off("score-updated");
-      socket.off("scores-reset-confirmed");
-      socket.off("settings-updated");
       socket.off("leaderboard-updated");
     };
   }, [username, roomId]);
@@ -190,12 +188,10 @@ export const ChatProvider = ({ children }) => {
         myStickers,
         socket,
         joinRoom,
-        sendMessage, // Now safe to use
+        sendMessage,
         handleTyping,
-        sendGameRequest,
-        sendRematchRequest,
-        closeGame,
-        updateScore,
+        createCustomSticker,
+        deleteCustomSticker,
         resetScores
       }}
     >

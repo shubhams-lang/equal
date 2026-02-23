@@ -1,4 +1,4 @@
-import React, { useState, useRef, useContext, useEffect } from "react";
+import React, { useState, useRef, useContext } from "react";
 import { ChatContext } from "../context/ChatContext";
 import { STICKER_PACKS } from "../constants/stickers";
 import { 
@@ -8,11 +8,19 @@ import {
   MicrophoneIcon, 
   StopIcon,
   XMarkIcon,
-  PlusIcon // Added for the upload button
+  PlusIcon 
 } from "@heroicons/react/24/outline";
 
 export default function MessageInput() {
-  const { sendMessage, socket, roomId, username, createCustomSticker, myStickers } = useContext(ChatContext);
+  const { 
+    sendMessage, 
+    socket, 
+    roomId, 
+    username, 
+    createCustomSticker, 
+    myStickers,
+    deleteCustomSticker 
+  } = useContext(ChatContext);
   
   const [text, setText] = useState("");
   const [showStickers, setShowStickers] = useState(false);
@@ -22,9 +30,9 @@ export default function MessageInput() {
   const videoRef = useRef(null);
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
-  const fileInputRef = useRef(null); // Ref for the hidden file input
+  const fileInputRef = useRef(null);
 
-  // --- 1. TYPING LOGIC ---
+  // --- 1. TYPING & TEXT LOGIC ---
   const handleInputChange = (e) => {
     setText(e.target.value);
     if (socket && roomId) {
@@ -32,7 +40,6 @@ export default function MessageInput() {
     }
   };
 
-  // --- 2. TEXT SENDING ---
   const handleSendText = (e) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -41,25 +48,21 @@ export default function MessageInput() {
     socket.emit("typing", { roomId, username: null });
   };
 
-  // --- 3. STICKER SENDING ---
+  // --- 2. STICKER LOGIC ---
   const sendSticker = (url) => {
     sendMessage({ type: "sticker", content: url });
     setShowStickers(false);
   };
 
-  // --- 4. CUSTOM STICKER UPLOAD ---
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 2 * 1024 * 1024) { // 2MB Limit
-        alert("File too large! Please keep stickers under 2MB.");
-        return;
-      }
       createCustomSticker(file);
+      e.target.value = ""; // Reset for next upload
     }
   };
 
-  // --- 5. CAMERA LOGIC ---
+  // --- 3. CAMERA LOGIC ---
   const startCamera = async () => {
     setShowCamera(true);
     try {
@@ -76,7 +79,7 @@ export default function MessageInput() {
     canvas.width = videoRef.current.videoWidth;
     canvas.height = videoRef.current.videoHeight;
     canvas.getContext("2d").drawImage(videoRef.current, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.7); // Compressed to 70% quality
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.7); // Compression applied
     
     sendMessage({ type: "image", content: dataUrl });
     stopCamera();
@@ -89,7 +92,7 @@ export default function MessageInput() {
     setShowCamera(false);
   };
 
-  // --- 6. VOICE RECORDING ---
+  // --- 4. AUDIO LOGIC ---
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -124,7 +127,7 @@ export default function MessageInput() {
         <div className="absolute bottom-20 left-0 w-full max-w-sm bg-black rounded-3xl overflow-hidden border-2 border-blue-500 shadow-2xl z-50">
           <video ref={videoRef} autoPlay playsInline className="w-full h-auto" />
           <div className="p-4 flex justify-around bg-black/80">
-            <button onClick={stopCamera} className="p-2 bg-white/10 rounded-full"><XMarkIcon className="w-6 h-6" /></button>
+            <button onClick={stopCamera} className="p-2 bg-white/10 rounded-full text-white"><XMarkIcon className="w-6 h-6" /></button>
             <button onClick={capturePhoto} className="p-4 bg-white rounded-full"><div className="w-4 h-4 bg-red-500 rounded-full" /></button>
           </div>
         </div>
@@ -133,34 +136,32 @@ export default function MessageInput() {
       {/* STICKER TRAY */}
       {showStickers && (
         <div className="absolute bottom-20 left-0 w-full max-w-xs bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-50 animate-in slide-in-from-bottom-2">
-          
-          {/* Header with Upload Option */}
           <div className="flex items-center justify-between p-3 border-b border-white/5">
             <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Sticker Pack</span>
             <button 
               onClick={() => fileInputRef.current.click()}
               className="flex items-center gap-1 text-[9px] font-black bg-blue-600/20 text-blue-400 px-2 py-1 rounded-lg hover:bg-blue-600 hover:text-white transition-all"
             >
-              <PlusIcon className="w-3 h-3" /> CREATE
+              <PlusIcon className="w-3 h-3" /> UPLOAD
             </button>
-            <input 
-              type="file" 
-              ref={fileInputRef} 
-              onChange={handleFileChange} 
-              accept="image/*" 
-              className="hidden" 
-            />
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
           </div>
 
           <div className="grid grid-cols-4 gap-3 p-4 max-h-60 overflow-y-auto custom-scrollbar">
-            {/* 1. Custom User Stickers */}
+            {/* Custom User Stickers */}
             {myStickers.map((url, index) => (
-              <button key={`custom-${index}`} onClick={() => sendSticker(url)} className="hover:scale-110 transition-transform bg-white/5 rounded-lg p-1">
-                <img src={url} alt="custom-sticker" className="w-full h-auto rounded-md" />
-              </button>
+              <div key={`custom-${index}`} className="group relative">
+                <button onClick={() => sendSticker(url)} className="hover:scale-110 transition-transform bg-white/5 rounded-lg p-1">
+                  <img src={url} alt="custom" className="w-full h-auto rounded-md" />
+                </button>
+                <button 
+                  onClick={() => deleteCustomSticker(index)}
+                  className="absolute -top-1 -right-1 hidden group-hover:flex w-4 h-4 bg-red-500 rounded-full items-center justify-center text-[8px] text-white"
+                >✕</button>
+              </div>
             ))}
 
-            {/* 2. Default Pack Stickers */}
+            {/* Default Stickers */}
             {STICKER_PACKS.flatMap(pack => pack.stickers).map((sticker) => (
               <button key={sticker.id} onClick={() => sendSticker(sticker.url)} className="hover:scale-110 transition-transform">
                 <img src={sticker.url} alt="sticker" className="w-full h-auto" />
@@ -171,8 +172,7 @@ export default function MessageInput() {
       )}
 
       {/* MAIN INPUT BAR */}
-      <form onSubmit={handleSendText} className="flex items-center gap-2 bg-black/20 p-2 rounded-2xl border border-white/5">
-        
+      <form onSubmit={handleSendText} className="flex items-center gap-2 bg-[#202c33] p-2 rounded-2xl border border-white/5">
         <button type="button" onClick={() => setShowStickers(!showStickers)} className="p-2 text-slate-400 hover:text-white transition-colors">
           <FaceSmileIcon className="w-6 h-6" />
         </button>
