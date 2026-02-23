@@ -33,26 +33,47 @@ const TTTGameOver = ({ winner, isDraw, onRematch, onQuit, opponent, username, se
 };
 
 export default function TicTacToe() {
-  const { socket, roomId, username, users, updateScore, closeGame } = useContext(ChatContext);
+  const { socket, roomId, username, users, updateScore, closeGame, scores } = useContext(ChatContext);
   
   const opponent = users.find(u => u !== username) || "Opponent";
-  const sortedUsers = [...users].sort();
-  const mySymbol = sortedUsers.indexOf(username) === 0 ? 'X' : 'O';
-  const opponentSymbol = mySymbol === 'X' ? 'O' : 'X';
-
+  
+  // --- STATE ---
   const [board, setBoard] = useState(Array(9).fill(null));
-  const [isMyTurn, setIsMyTurn] = useState(mySymbol === 'X'); 
   const [winner, setWinner] = useState(null);
   const [isDraw, setIsDraw] = useState(false);
   const [winStreak, setWinStreak] = useState(0);
+  
+  // Dynamic Symbols based on Round Number
+  const [mySymbol, setMySymbol] = useState('X');
+  const [isMyTurn, setIsMyTurn] = useState(false);
 
-  // Memoized reset function to ensure it's stable for useEffect
+  // --- LOGIC: INTERCHANGE SYMBOLS ---
+  const calculateTurnLogic = useCallback(() => {
+    // Sum total scores to determine round number
+    const totalGames = Object.values(scores).reduce((a, b) => a + b, 0);
+    const sortedUsers = [...users].sort();
+    const isFirstUser = username === sortedUsers[0];
+
+    // If total games is even: User 1 is X. If odd: User 2 is X.
+    const amIXThisRound = totalGames % 2 === 0 ? isFirstUser : !isFirstUser;
+    
+    const assignedSymbol = amIXThisRound ? 'X' : 'O';
+    setMySymbol(assignedSymbol);
+    setIsMyTurn(assignedSymbol === 'X'); // X always starts
+  }, [scores, users, username]);
+
+  // --- ACTIONS ---
   const resetGameLocal = useCallback(() => {
     setBoard(Array(9).fill(null));
     setWinner(null);
     setIsDraw(false);
-    setIsMyTurn(mySymbol === 'X');
-  }, [mySymbol]);
+    calculateTurnLogic(); // Recalculate symbols based on new score
+  }, [calculateTurnLogic]);
+
+  // Initialize and Sync
+  useEffect(() => {
+    calculateTurnLogic();
+  }, [calculateTurnLogic]);
 
   useEffect(() => {
     const socketListener = (data) => {
@@ -64,7 +85,6 @@ export default function TicTacToe() {
         else setIsMyTurn(true); 
       }
       
-      // CRITICAL: This allows the "Play Again" button to work for BOTH players
       if (data.type === 'TTT_RESTART') {
         resetGameLocal();
       }
@@ -99,17 +119,17 @@ export default function TicTacToe() {
       } else {
         setWinner(username);
         setWinStreak(prev => prev + 1);
-        updateScore(username);
+        updateScore(username); // This triggers the round swap for the next game
       }
     }
   };
 
   const triggerRematch = () => {
-    // Tell the other player to reset their screen
     socket.emit('game-data', { roomId, type: 'TTT_RESTART' });
-    // Reset our own screen
     resetGameLocal();
   };
+
+  const opponentSymbol = mySymbol === 'X' ? 'O' : 'X';
 
   return (
     <div className="relative w-full max-w-[340px] aspect-square bg-[#0e1621] rounded-[2.5rem] p-6 shadow-2xl border border-white/5 overflow-hidden flex flex-col items-center justify-center">
@@ -147,6 +167,7 @@ export default function TicTacToe() {
         ))}
       </div>
 
+      {/* Bottom Identity Labels */}
       <div className="mt-6 flex gap-4 text-[9px] font-bold text-gray-500 uppercase tracking-widest items-center">
         <span className={mySymbol === 'X' ? 'text-blue-400' : 'text-[#25D366]'}>You: {mySymbol}</span>
         <span className="w-1 h-1 bg-white/10 rounded-full" />
