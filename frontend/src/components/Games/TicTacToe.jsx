@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { ChatContext } from '../../context/ChatContext';
 
 // --- GAME OVER OVERLAY ---
-const TTTGameOver = ({ winner, isDraw, onRematch, onQuit, opponent, username }) => {
+const TTTGameOver = ({ winner, isDraw, onRematch, onQuit, opponent, username, series }) => {
   const isMe = winner === username;
   return (
     <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
@@ -12,15 +12,19 @@ const TTTGameOver = ({ winner, isDraw, onRematch, onQuit, opponent, username }) 
       <h2 className={`text-3xl font-black italic tracking-tighter mb-2 ${isDraw ? 'text-blue-400' : (isMe ? 'text-[#25D366]' : 'text-red-500')}`}>
         {isDraw ? "DRAW!" : (isMe ? "VICTORY!" : "DEFEAT...")}
       </h2>
-      <p className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-8">
-        {isDraw ? "A perfect stalemate" : (isMe ? "Masterclass performance!" : `${opponent} took the round`)}
-      </p>
+      
+      {/* Series Progress */}
+      <div className="flex gap-2 mb-6">
+        {[1, 2, 3].map((step) => (
+          <div key={step} className={`w-8 h-1.5 rounded-full ${series >= step ? 'bg-[#25D366]' : 'bg-white/10'}`} />
+        ))}
+      </div>
 
       <div className="flex flex-col w-full gap-3 max-w-[200px]">
-        <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+        <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform hover:bg-[#2b8de0]">
           Play Again
         </button>
-        <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400">
+        <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400 hover:bg-white/10">
           Quit Game
         </button>
       </div>
@@ -31,7 +35,6 @@ const TTTGameOver = ({ winner, isDraw, onRematch, onQuit, opponent, username }) 
 export default function TicTacToe() {
   const { socket, roomId, username, users, updateScore, closeGame } = useContext(ChatContext);
   
-  // 1. STABLE ROLE ASSIGNMENT
   const opponent = users.find(u => u !== username) || "Opponent";
   const sortedUsers = [...users].sort();
   const mySymbol = sortedUsers.indexOf(username) === 0 ? 'X' : 'O';
@@ -41,14 +44,15 @@ export default function TicTacToe() {
   const [isMyTurn, setIsMyTurn] = useState(mySymbol === 'X'); 
   const [winner, setWinner] = useState(null);
   const [isDraw, setIsDraw] = useState(false);
+  const [winStreak, setWinStreak] = useState(0);
 
-  // 2. GLOBAL RESET FUNCTION
-  const resetGameLocal = () => {
+  // Memoized reset function to ensure it's stable for useEffect
+  const resetGameLocal = useCallback(() => {
     setBoard(Array(9).fill(null));
     setWinner(null);
     setIsDraw(false);
-    setIsMyTurn(mySymbol === 'X'); // X always restarts the flow
-  };
+    setIsMyTurn(mySymbol === 'X');
+  }, [mySymbol]);
 
   useEffect(() => {
     const socketListener = (data) => {
@@ -60,7 +64,7 @@ export default function TicTacToe() {
         else setIsMyTurn(true); 
       }
       
-      // Rematch listener to sync both screens simultaneously
+      // CRITICAL: This allows the "Play Again" button to work for BOTH players
       if (data.type === 'TTT_RESTART') {
         resetGameLocal();
       }
@@ -68,7 +72,7 @@ export default function TicTacToe() {
 
     socket.on('game-data', socketListener);
     return () => socket.off('game-data', socketListener);
-  }, [socket, mySymbol, opponent, username]);
+  }, [socket, mySymbol, opponent, username, resetGameLocal]);
 
   const checkWinner = (sq) => {
     const lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
@@ -94,29 +98,38 @@ export default function TicTacToe() {
         setIsDraw(true);
       } else {
         setWinner(username);
-        updateScore(username); // Broadcasts score update to header
+        setWinStreak(prev => prev + 1);
+        updateScore(username);
       }
     }
   };
 
   const triggerRematch = () => {
+    // Tell the other player to reset their screen
     socket.emit('game-data', { roomId, type: 'TTT_RESTART' });
+    // Reset our own screen
     resetGameLocal();
   };
 
   return (
     <div className="relative w-full max-w-[340px] aspect-square bg-[#0e1621] rounded-[2.5rem] p-6 shadow-2xl border border-white/5 overflow-hidden flex flex-col items-center justify-center">
       
+      {/* Series Status */}
+      <div className="absolute top-4 left-6 flex items-center gap-1">
+        <p className="text-[7px] font-black text-gray-500 uppercase tracking-widest mr-1">Wins:</p>
+        {[1, 2, 3].map(s => (
+          <div key={s} className={`w-1.5 h-1.5 rounded-full ${winStreak >= s ? 'bg-[#25D366]' : 'bg-white/10'}`} />
+        ))}
+      </div>
+
       {/* Turn Indicator */}
       <div className={`mb-6 px-6 py-2 rounded-full border transition-all duration-300 ${isMyTurn ? 'border-[#25D366] bg-[#25D366]/10' : 'border-white/10 bg-white/5'}`}>
         <p className={`text-[10px] font-black uppercase tracking-[0.2em] ${isMyTurn ? 'text-[#25D366]' : 'text-gray-400'}`}>
-          {isMyTurn ? `Your Turn (${mySymbol})` : `Waiting for ${opponentSymbol}`}
+          {isMyTurn ? `Your Turn (${mySymbol})` : `Opponent Thinking...`}
         </p>
       </div>
 
-      
-
-      {/* 3x3 Grid */}
+      {/* Grid */}
       <div className="grid grid-cols-3 gap-3 w-full aspect-square">
         {board.map((cell, i) => (
           <button
@@ -125,7 +138,7 @@ export default function TicTacToe() {
             disabled={!isMyTurn || cell !== null}
             className={`rounded-2xl flex items-center justify-center text-4xl font-black transition-all active:scale-95
               ${cell === 'X' ? 'text-blue-400 bg-blue-400/5' : 'text-[#25D366] bg-[#25D366]/5'}
-              ${!cell && isMyTurn ? 'bg-white/5 hover:bg-white/10 shadow-inner' : 'bg-[#1c2733]'}
+              ${!cell && isMyTurn ? 'bg-white/5 hover:bg-white/10' : 'bg-[#1c2733]'}
               ${!isMyTurn && !cell ? 'opacity-30' : 'opacity-100'}
             `}
           >
@@ -134,18 +147,17 @@ export default function TicTacToe() {
         ))}
       </div>
 
-      {/* Footer Info */}
       <div className="mt-6 flex gap-4 text-[9px] font-bold text-gray-500 uppercase tracking-widest items-center">
-        <span className={mySymbol === 'X' ? 'text-blue-400' : 'text-[#25D366]'}>YOU: {mySymbol}</span>
+        <span className={mySymbol === 'X' ? 'text-blue-400' : 'text-[#25D366]'}>You: {mySymbol}</span>
         <span className="w-1 h-1 bg-white/10 rounded-full" />
-        <span>{opponent.split(' ')[1] || 'OPP'}: {opponentSymbol}</span>
+        <span>{opponent.split(' ')[1] || 'Opp'}: {opponentSymbol}</span>
       </div>
 
-      {/* Game Over UI Overlay */}
       {(winner || isDraw) && (
         <TTTGameOver 
           winner={winner} 
           isDraw={isDraw} 
+          series={winStreak}
           onRematch={triggerRematch} 
           onQuit={closeGame} 
           opponent={opponent} 
