@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState, useContext } from 'react';
 import { ChatContext } from '../../context/ChatContext';
 
-// --- GAME OVER OVERLAY COMPONENT ---
+// --- GAME OVER OVERLAY ---
 const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username }) => {
   const isMe = winner === username;
   return (
-    <div className="absolute inset-0 z-[110] bg-[#0e1621]/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
+    <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
       <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-2xl ${isMe ? 'bg-yellow-500' : 'bg-gray-700'}`}>
         <span className="text-4xl">{isMe ? "🏆" : "💀"}</span>
       </div>
@@ -15,6 +15,7 @@ const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username
       <p className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-6">
         {isMe ? "You dominated the court" : `${winner} took the win`}
       </p>
+      
       <div className="flex gap-8 mb-8 bg-black/40 px-6 py-3 rounded-2xl border border-white/5">
         <div>
           <p className="text-[8px] text-gray-500 font-black">YOU</p>
@@ -22,13 +23,14 @@ const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username
         </div>
         <div className="w-px h-8 bg-white/10 self-center" />
         <div>
-          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent}</p>
+          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent?.split(' ')[1] || 'OPPONENT'}</p>
           <p className="text-xl font-black">{scores[opponent] || 0}</p>
         </div>
       </div>
-      <div className="flex flex-col w-full gap-3">
+
+      <div className="flex flex-col w-full gap-3 max-w-[200px]">
         <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
-          Request Rematch
+          Rematch
         </button>
         <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400">
           Quit
@@ -43,27 +45,27 @@ export default function Pong() {
   const { socket, roomId, username, opponent, updateScore, scores, sendRematchRequest, closeGame } = useContext(ChatContext);
   const canvasRef = useRef(null);
   const [winner, setWinner] = useState(null);
-  const isHost = username < opponent; // Deterministic Host
+  
+  // Use a ref for the ball to prevent unnecessary re-renders during the high-speed loop
+  const ballRef = useRef({ x: 150, y: 150, dx: 4, dy: 4, size: 6 });
+  const paddlesRef = useRef({ p1Y: 120, p2Y: 120 });
+
+  const isHost = username < opponent;
+  const CW = 300; 
+  const CH = 300;
+  const P_HEIGHT = 60;
+  const P_WIDTH = 8;
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    
-    // Game Constants
-    const CW = 300; 
-    const CH = 300;
-    const P_HEIGHT = 60;
-    const P_WIDTH = 10;
 
-    // Game State
-    let ball = { x: CW / 2, y: CH / 2, dx: 4, dy: 4, size: 6 };
-    let p1Y = (CH - P_HEIGHT) / 2; // Host (Left)
-    let p2Y = (CH - P_HEIGHT) / 2; // Guest (Right)
-
-    const handleInput = (y) => {
+    const handleInput = (clientY) => {
       const rect = canvas.getBoundingClientRect();
-      const relativeY = y - rect.top - P_HEIGHT / 2;
+      // Calculate Y relative to the actual displayed height of the canvas
+      const scaleY = CH / rect.height;
+      const relativeY = (clientY - rect.top) * scaleY - P_HEIGHT / 2;
       const clampedY = Math.max(0, Math.min(CH - P_HEIGHT, relativeY));
       
       socket.emit('game-data', { 
@@ -77,13 +79,13 @@ export default function Pong() {
     const socketListener = (data) => {
       if (data.type === 'PADDLE_MOVE') {
         if (data.user === opponent) {
-          isHost ? (p2Y = data.y) : (p1Y = data.y);
+          isHost ? (paddlesRef.current.p2Y = data.y) : (paddlesRef.current.p1Y = data.y);
         } else {
-          isHost ? (p1Y = data.y) : (p2Y = data.y);
+          isHost ? (paddlesRef.current.p1Y = data.y) : (paddlesRef.current.p2Y = data.y);
         }
       }
       if (!isHost && data.type === 'SYNC_BALL') {
-        ball = data.ball;
+        ballRef.current = data.ball;
       }
       if (data.type === 'GAME_OVER') {
         setWinner(data.winner);
@@ -95,63 +97,59 @@ export default function Pong() {
     const gameLoop = setInterval(() => {
       if (winner) return;
 
-      // 1. Physics (Host Only)
       if (isHost) {
-        ball.x += ball.dx;
-        ball.y += ball.dy;
+        let b = ballRef.current;
+        b.x += b.dx;
+        b.y += b.dy;
 
-        // Wall Bounce
-        if (ball.y <= 0 || ball.y >= CH) ball.dy *= -1;
+        // Bounce Walls
+        if (b.y <= 0 || b.y >= CH) b.dy *= -1;
 
-        // Paddle Collision Left (Host)
-        if (ball.x <= P_WIDTH + 10 && ball.y > p1Y && ball.y < p1Y + P_HEIGHT) {
-          ball.dx = Math.abs(ball.dx);
+        // Bounce Paddles
+        if (b.x <= 20 && b.y > paddlesRef.current.p1Y && b.y < paddlesRef.current.p1Y + P_HEIGHT) {
+          b.dx = Math.abs(b.dx) + 0.2; // Slight speed up
         }
-        // Paddle Collision Right (Guest)
-        if (ball.x >= CW - P_WIDTH - 10 && ball.y > p2Y && ball.y < p2Y + P_HEIGHT) {
-          ball.dx = -Math.abs(ball.dx);
+        if (b.x >= CW - 20 && b.y > paddlesRef.current.p2Y && b.y < paddlesRef.current.p2Y + P_HEIGHT) {
+          b.dx = -(Math.abs(b.dx) + 0.2);
         }
 
-        // Score Check
-        if (ball.x < 0) {
+        // Scoring
+        if (b.x < 0) {
           socket.emit('game-data', { roomId, type: 'GAME_OVER', winner: opponent });
           updateScore(opponent);
-        } else if (ball.x > CW) {
+        } else if (b.x > CW) {
           socket.emit('game-data', { roomId, type: 'GAME_OVER', winner: username });
           updateScore(username);
         }
-
-        // Sync Ball Position to Guest
-        socket.emit('game-data', { roomId, type: 'SYNC_BALL', ball });
+        
+        socket.emit('game-data', { roomId, type: 'SYNC_BALL', ball: b });
       }
 
-      // 2. Rendering
-      ctx.clearRect(0, 0, CW, CH);
+      // Render
+      ctx.fillStyle = '#0b141a'; // Dark background
+      ctx.fillRect(0, 0, CW, CH);
       
-      // Center Line
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
       ctx.setLineDash([5, 5]);
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
       ctx.beginPath(); ctx.moveTo(CW/2, 0); ctx.lineTo(CW/2, CH); ctx.stroke();
-      ctx.setLineDash([]);
 
-      // Paddles
-      ctx.fillStyle = isHost ? '#2481cc' : '#555'; // Host Paddle
-      ctx.fillRect(10, p1Y, P_WIDTH, P_HEIGHT);
+      // Draw Paddles
+      ctx.fillStyle = isHost ? '#2481cc' : '#333'; 
+      ctx.fillRect(10, paddlesRef.current.p1Y, P_WIDTH, P_HEIGHT);
       
-      ctx.fillStyle = !isHost ? '#2481cc' : '#555'; // Guest Paddle
-      ctx.fillRect(CW - P_WIDTH - 10, p2Y, P_WIDTH, P_HEIGHT);
+      ctx.fillStyle = !isHost ? '#2481cc' : '#333';
+      ctx.fillRect(CW - P_WIDTH - 10, paddlesRef.current.p2Y, P_WIDTH, P_HEIGHT);
 
-      // Ball
+      // Draw Ball
       ctx.fillStyle = '#fff';
       ctx.beginPath();
-      ctx.arc(ball.x, ball.y, ball.size, 0, Math.PI * 2);
+      ctx.arc(ballRef.current.x, ballRef.current.y, ballRef.current.size, 0, Math.PI * 2);
       ctx.fill();
     }, 1000 / 60);
 
-    // Event Listeners
     const onMouseMove = (e) => handleInput(e.clientY);
     const onTouchMove = (e) => {
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
       handleInput(e.touches[0].clientY);
     };
 
@@ -164,15 +162,15 @@ export default function Pong() {
       canvas.removeEventListener('mousemove', onMouseMove);
       canvas.removeEventListener('touchmove', onTouchMove);
     };
-  }, [socket, roomId, winner]);
+  }, [socket, roomId, winner, opponent, isHost, username, updateScore]);
 
   return (
-    <div className="relative w-full h-full bg-black/20 flex items-center justify-center overflow-hidden">
+    <div className="relative w-full aspect-square max-w-[400px] bg-[#111b21] rounded-3xl overflow-hidden border-4 border-[#202c33] shadow-2xl">
       <canvas 
         ref={canvasRef} 
         width={300} 
         height={300} 
-        className="w-full h-full touch-none"
+        className="w-full h-full cursor-none touch-none"
       />
       
       {winner && (
