@@ -1,10 +1,9 @@
-import { createContext, useState, useEffect, useRef } from "react";
+import { createContext, useState, useEffect, useRef, useCallback } from "react";
 import io from "socket.io-client";
 import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
-// Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com";
 
 const socket = io(SOCKET_URL, {
@@ -13,18 +12,13 @@ const socket = io(SOCKET_URL, {
 });
 
 export const ChatProvider = ({ children }) => {
-  // --- AUTH & ROOM STATE ---
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState(null);
   const [users, setUsers] = useState([]);
   const [opponent, setOpponent] = useState(null);
-
-  // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
   const typingTimeoutRef = useRef(null);
-
-  // --- GAME STATE ---
   const [activeGame, setActiveGame] = useState(null);
   const [scores, setScores] = useState({});
 
@@ -36,14 +30,12 @@ export const ChatProvider = ({ children }) => {
     if (!id || !name) return;
     setRoomId(id);
     setUsername(name);
-    setMessages([]); // Reset chat history for the new session
+    setMessages([]);
     socket.emit("join-room", { roomId: id, username: name });
   };
 
-  // Logic to determine who you are playing against
   useEffect(() => {
     if (users.length > 0 && username) {
-      // Find the first user in the list that isn't you
       const foundOpponent = users.find((u) => u !== username);
       setOpponent(foundOpponent || null);
     }
@@ -55,7 +47,6 @@ export const ChatProvider = ({ children }) => {
 
   const sendMessage = (text) => {
     if (!text.trim() || !roomId) return;
-
     const messageData = {
       id: uuidv4(),
       roomId,
@@ -64,8 +55,6 @@ export const ChatProvider = ({ children }) => {
       timestamp: new Date().toISOString(),
       type: "user",
     };
-
-    // Optimistic Update: Add to local state immediately
     setMessages((prev) => [...prev, messageData]);
     socket.emit("send-message", messageData);
   };
@@ -73,7 +62,6 @@ export const ChatProvider = ({ children }) => {
   const handleTyping = () => {
     if (!roomId) return;
     socket.emit("typing", { roomId, username });
-
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stop-typing", { roomId, username });
@@ -84,15 +72,32 @@ export const ChatProvider = ({ children }) => {
       🎮 GAME SYNCHRONIZATION
      =========================== */
 
-  // Request to start a new game
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
+    // Reset scores whenever a brand new game type is picked
+    resetScores();
     socket.emit("start-game", { roomId, gameId });
   };
 
-  // Logic for the GameOverOverlay rematch button
+  // NEW: Reset scores to 0 locally and on server
+  const resetScores = useCallback(() => {
+    const freshScores = {};
+    users.forEach(u => freshScores[u] = 0);
+    setScores(freshScores);
+    socket.emit("reset-scores", { roomId });
+  }, [roomId, users]);
+
+  // FIXED: Logic for simultaneous rematch
   const sendRematchRequest = () => {
     if (!roomId || !activeGame) return;
+    
+    // 1. Reset the points
+    resetScores();
+    
+    // 2. Send a specific signal that the game components listen for to clear their boards
+    socket.emit("game-data", { roomId, type: "GAME_RESTART_SIGNAL" });
+    
+    // 3. Re-trigger the game start to ensure both players see the overlay disappear
     socket.emit("start-game", { roomId, gameId: activeGame });
   };
 
@@ -100,6 +105,7 @@ export const ChatProvider = ({ children }) => {
     if (!roomId) return;
     socket.emit("leave-game", { roomId });
     setActiveGame(null);
+    setScores({});
   };
 
   const updateScore = (winnerName) => {
@@ -115,11 +121,8 @@ export const ChatProvider = ({ children }) => {
      =========================== */
 
   useEffect(() => {
-    // Chat & Users
     socket.on("receive-message", (msg) => {
-      if (msg.username !== username) {
-        setMessages((prev) => [...prev, msg]);
-      }
+      if (msg.username !== username) setMessages((prev) => [...prev, msg]);
     });
 
     socket.on("online-users", (userList) => setUsers(userList));
@@ -130,18 +133,25 @@ export const ChatProvider = ({ children }) => {
 
     socket.on("user-stop-typing", () => setTypingUser(null));
 
-    // Game Events
     socket.on("game-started", (gameId) => {
       setActiveGame(gameId);
     });
 
     socket.on("game-closed", () => {
       setActiveGame(null);
+      setScores({});
     });
 
     socket.on("score-updated", (data) => {
-      // Data expected: { username: score }
+      // Merges the new score state from server
       setScores((prev) => ({ ...prev, ...data }));
+    });
+
+    // NEW: Listen for score resets from opponent
+    socket.on("scores-reset-confirmed", () => {
+      const freshScores = {};
+      users.forEach(u => freshScores[u] = 0);
+      setScores(freshScores);
     });
 
     return () => {
@@ -152,8 +162,9 @@ export const ChatProvider = ({ children }) => {
       socket.off("game-started");
       socket.off("game-closed");
       socket.off("score-updated");
+      socket.off("scores-reset-confirmed");
     };
-  }, [username, roomId]);
+  }, [username, roomId, users]);
 
   return (
     <ChatContext.Provider
@@ -163,7 +174,7 @@ export const ChatProvider = ({ children }) => {
         setRoomId,
         messages,
         users,
-        opponent, // CRITICAL for Pong paddle sync
+        opponent,
         typingUser,
         activeGame,
         scores,
@@ -174,6 +185,7 @@ export const ChatProvider = ({ children }) => {
         sendRematchRequest,
         closeGame,
         updateScore,
+        resetScores, // Now available in game components
         socket,
       }}
     >
