@@ -12,17 +12,12 @@ const socket = io(SOCKET_URL, {
 });
 
 export const ChatProvider = ({ children }) => {
-  // --- AUTH & ROOM STATE ---
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState(null);
   const [users, setUsers] = useState([]);
   const [opponent, setOpponent] = useState(null);
-
-  // --- MESSAGING & STICKER STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
-  
-  // Load custom stickers from localStorage on initialization
   const [myStickers, setMyStickers] = useState(() => {
     const saved = localStorage.getItem("custom_stickers");
     return saved ? JSON.parse(saved) : [];
@@ -30,7 +25,7 @@ export const ChatProvider = ({ children }) => {
   
   const typingTimeoutRef = useRef(null);
 
-  // --- GAME & STATS STATE ---
+  // --- GAME STATE ---
   const [activeGame, setActiveGame] = useState(null);
   const [scores, setScores] = useState({});
   const [leaderboard, setLeaderboard] = useState({});
@@ -60,10 +55,8 @@ export const ChatProvider = ({ children }) => {
       💬 MESSAGING & MEDIA
      =========================== */
 
-  // Refactored to accept an object to prevent "Blank Screen" crashes
   const sendMessage = ({ content, type = "text", metadata = {} }) => {
     if (!content || !roomId) return;
-
     const messageData = {
       id: uuidv4(),
       roomId,
@@ -73,7 +66,6 @@ export const ChatProvider = ({ children }) => {
       metadata,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-
     setMessages((prev) => [...prev, messageData]);
     socket.emit("send-message", messageData);
   };
@@ -87,35 +79,23 @@ export const ChatProvider = ({ children }) => {
     }, 2000);
   };
 
-  /**
-   * CUSTOM STICKER CREATION WITH COMPRESSION
-   */
   const createCustomSticker = (file) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
-
     reader.onload = (event) => {
       const img = new Image();
       img.src = event.target.result;
-
       img.onload = () => {
-        // Create an off-screen canvas for compression
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 320; // Ideal size for stickers
+        const MAX_WIDTH = 320;
         const scaleSize = MAX_WIDTH / img.width;
-        
         canvas.width = MAX_WIDTH;
         canvas.height = img.height * scaleSize;
-
         const ctx = canvas.getContext("2d");
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-
-        // Compress to 70% quality JPEG to keep payload small
         const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
-
-        // Update state and persistence
         setMyStickers((prev) => {
-          const updated = [compressedBase64, ...prev].slice(0, 24); // Keep recent 24
+          const updated = [compressedBase64, ...prev].slice(0, 24);
           localStorage.setItem("custom_stickers", JSON.stringify(updated));
           return updated;
         });
@@ -132,31 +112,69 @@ export const ChatProvider = ({ children }) => {
   };
 
   /* ===========================
-      🎮 GAME & SOCKETS
+      🎮 GAME LOGIC (ADDED MISSING)
      =========================== */
 
+  // 1. Send Request to start a game
+  const sendGameRequest = (gameId) => {
+    if (!roomId) return;
+    console.log("Starting game:", gameId);
+    socket.emit("start-game", { roomId, gameId });
+  };
+
+  // 2. Update scores during a game
+  const updateScore = (winnerName) => {
+    if (!roomId) return;
+    socket.emit("update-score", { roomId, username: winnerName });
+  };
+
+  // 3. Reset scores
   const resetScores = useCallback(() => {
     if (!roomId) return;
     socket.emit("reset-scores", { roomId });
   }, [roomId]);
 
+  // 4. Close/Exit game
+  const closeGame = () => {
+    if (!roomId) return;
+    socket.emit("leave-game", { roomId });
+    setActiveGame(null);
+  };
+
+  /* ===========================
+      📡 GLOBAL SOCKET LISTENERS
+     =========================== */
+
   useEffect(() => {
     socket.on("receive-message", (msg) => {
-      if (msg && msg.username !== username) {
-        setMessages((prev) => [...prev, msg]);
-      }
+      if (msg && msg.username !== username) setMessages((prev) => [...prev, msg]);
     });
 
     socket.on("online-users", (userList) => setUsers(userList));
+    
     socket.on("user-typing", ({ username: tName }) => { 
       if (tName !== username) setTypingUser(tName); 
     });
+
     socket.on("user-stop-typing", () => setTypingUser(null));
-    socket.on("game-started", (gameId) => setActiveGame(gameId));
+
+    // Game Specific Listeners
+    socket.on("game-started", (gameId) => {
+      console.log("Game started event received:", gameId);
+      setActiveGame(gameId);
+    });
+
+    socket.on("game-closed", () => {
+      setActiveGame(null);
+      setScores({});
+    });
+
     socket.on("score-updated", (data) => setScores(data));
+    socket.on("scores-reset-confirmed", (data) => setScores(data));
+
     socket.on("leaderboard-updated", (data) => {
-      setLeaderboard(data.leaderboard);
-      setStreak(data.streak);
+      setLeaderboard(data.leaderboard || {});
+      setStreak(data.streak || { lastWinner: null, count: 0 });
     });
 
     return () => {
@@ -165,7 +183,9 @@ export const ChatProvider = ({ children }) => {
       socket.off("user-typing");
       socket.off("user-stop-typing");
       socket.off("game-started");
+      socket.off("game-closed");
       socket.off("score-updated");
+      socket.off("scores-reset-confirmed");
       socket.off("leaderboard-updated");
     };
   }, [username, roomId]);
@@ -192,6 +212,9 @@ export const ChatProvider = ({ children }) => {
         handleTyping,
         createCustomSticker,
         deleteCustomSticker,
+        sendGameRequest, // ADDED
+        updateScore,     // ADDED
+        closeGame,       // ADDED
         resetScores
       }}
     >
