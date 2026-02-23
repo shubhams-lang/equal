@@ -6,27 +6,30 @@ import { v4 as uuidv4 } from "uuid";
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+// Increased limit to handle Base64 images/videos/voice messages
+app.use(express.json({ limit: "50mb" })); 
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 const server = http.createServer(app);
 
-// Configure Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", // In production, replace with your specific frontend URL
+    origin: "*", 
     methods: ["GET", "POST"]
-  }
+  },
+  // Max buffer size for media transfers
+  maxHttpBufferSize: 1e8 
 });
 
 /* ===========================
     STATE MANAGEMENT
    =========================== */
 const onlineUsers = {};     // { roomId: [usernames] }
-const socketToUser = new Map(); // socket.id -> { roomId, username }
-const roomScores = {};      // { roomId: { username: score } } - Round Level (Race to 10)
-const roomLeaderboard = {};  // { roomId: { username: matchWins } } - Set Level (🏆)
-const roomStreaks = {};     // { roomId: { lastWinner, count } } - Consecutive Sets (🔥)
-const roomSettings = {};    // { roomId: { winTarget: 10 } } - Game Configuration
+const socketToUser = new Map(); 
+const roomScores = {};      // Round Level (0-10)
+const roomLeaderboard = {};  // Set Level (🏆)
+const roomStreaks = {};     // Consecutive Sets (🔥)
+const roomSettings = {};    // { roomId: { winTarget: 10 } }
 
 /* ===========================
     HTTP ROUTES
@@ -47,7 +50,6 @@ io.on("connection", (socket) => {
     socket.join(roomId);
     socketToUser.set(socket.id, { roomId, username });
 
-    // Initialize Global State for Room
     if (!onlineUsers[roomId]) onlineUsers[roomId] = [];
     if (!roomScores[roomId]) roomScores[roomId] = {};
     if (!roomLeaderboard[roomId]) roomLeaderboard[roomId] = {};
@@ -58,11 +60,10 @@ io.on("connection", (socket) => {
       onlineUsers[roomId].push(username);
     }
     
-    // Ensure user exists in score maps
     if (roomScores[roomId][username] === undefined) roomScores[roomId][username] = 0;
     if (roomLeaderboard[roomId][username] === undefined) roomLeaderboard[roomId][username] = 0;
 
-    // Sync current room state to the user who just joined
+    // Sync state
     io.to(roomId).emit("online-users", onlineUsers[roomId]);
     io.to(roomId).emit("score-updated", roomScores[roomId]);
     io.to(roomId).emit("settings-updated", roomSettings[roomId]);
@@ -74,30 +75,38 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("receive-message", {
       username: "System",
       message: `${username} joined the chat`,
-      type: "system"
+      type: "system",
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     });
   });
 
-  // --- MESSAGING ---
+  // --- MESSAGING (Text, Media, Voice, Stickers) ---
   socket.on("send-message", (data) => {
+    // data: { roomId, username, content, type, timestamp, metadata }
     socket.to(data.roomId).emit("receive-message", data);
   });
 
+  // --- TYPING ---
+  socket.on("typing", ({ roomId, username }) => {
+    socket.to(roomId).emit("user-typing", { username });
+  });
+
+  socket.on("stop-typing", ({ roomId, username }) => {
+    socket.to(roomId).emit("user-stop-typing", { username });
+  });
+
   /* ===========================
-      🎮 GAME LOGIC & SYNC
+      🎮 GAME LOGIC
      =========================== */
 
-  // Relay for Game Starts
   socket.on("start-game", ({ roomId, gameId }) => {
     io.to(roomId).emit("game-started", gameId);
   });
 
-  // Generic Game Data Relay (Moves, Scrambled words, etc.)
   socket.on("game-data", (data) => {
     socket.to(data.roomId).emit("game-data", data);
   });
 
-  // 1. Update Round Score (The 1, 2, 3... count)
   socket.on("update-score", ({ roomId, username }) => {
     if (roomScores[roomId]) {
       roomScores[roomId][username] = (roomScores[roomId][username] || 0) + 1;
@@ -105,7 +114,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 2. Reset Scores (For "Play Again" / Rematch)
   socket.on("reset-scores", ({ roomId }) => {
     if (roomScores[roomId]) {
       Object.keys(roomScores[roomId]).forEach(u => roomScores[roomId][u] = 0);
@@ -113,12 +121,9 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 3. Match Victory (The Big Win 🏆 & Streak 🔥)
   socket.on("match-victory", ({ roomId, username }) => {
-    // Increment Trophy Count
     roomLeaderboard[roomId][username] = (roomLeaderboard[roomId][username] || 0) + 1;
 
-    // Calculate Streak
     const streakData = roomStreaks[roomId];
     if (streakData.lastWinner === username) {
       streakData.count += 1;
@@ -127,23 +132,21 @@ io.on("connection", (socket) => {
       streakData.count = 1;
     }
 
-    // Broadcast updated standings
     io.to(roomId).emit("leaderboard-updated", {
       leaderboard: roomLeaderboard[roomId],
       streak: roomStreaks[roomId]
     });
 
-    // Chat Announcement for streaks
     if (streakData.count >= 3) {
       io.to(roomId).emit("receive-message", {
         username: "System",
-        message: `🔥 STREAK ALERT: ${username} has won ${streakData.count} matches in a row!`,
-        type: "system"
+        message: `🔥 STREAK: ${username} has won ${streakData.count} matches!`,
+        type: "system",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       });
     }
   });
 
-  // 4. Update Game Settings (Win Target)
   socket.on("update-settings", ({ roomId, settings }) => {
     roomSettings[roomId] = { ...roomSettings[roomId], ...settings };
     io.to(roomId).emit("settings-updated", roomSettings[roomId]);
@@ -154,7 +157,7 @@ io.on("connection", (socket) => {
   });
 
   /* ===========================
-      🚪 DISCONNECT LOGIC
+      🚪 DISCONNECT
      =========================== */
   socket.on("disconnect", () => {
     const userData = socketToUser.get(socket.id);
@@ -163,6 +166,13 @@ io.on("connection", (socket) => {
       if (onlineUsers[roomId]) {
         onlineUsers[roomId] = onlineUsers[roomId].filter((u) => u !== username);
         io.to(roomId).emit("online-users", onlineUsers[roomId]);
+        
+        socket.to(roomId).emit("receive-message", {
+          username: "System",
+          message: `${username} left the chat`,
+          type: "system",
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        });
       }
       socketToUser.delete(socket.id);
     }

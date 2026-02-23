@@ -4,7 +4,6 @@ import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
-// Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com";
 
 const socket = io(SOCKET_URL, {
@@ -22,14 +21,15 @@ export const ChatProvider = ({ children }) => {
   // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
+  const [myStickers, setMyStickers] = useState([]); // Custom Stickers List
   const typingTimeoutRef = useRef(null);
 
   // --- GAME & STATS STATE ---
   const [activeGame, setActiveGame] = useState(null);
-  const [scores, setScores] = useState({}); // Round points (0-10)
-  const [leaderboard, setLeaderboard] = useState({}); // Total Match Wins
-  const [streak, setStreak] = useState({ lastWinner: null, count: 0 }); // Fire Streak 🔥
-  const [settings, setSettings] = useState({ winTarget: 10 }); // Game Config
+  const [scores, setScores] = useState({});
+  const [leaderboard, setLeaderboard] = useState({});
+  const [streak, setStreak] = useState({ lastWinner: null, count: 0 });
+  const [settings, setSettings] = useState({ winTarget: 10 });
 
   /* ===========================
       🚪 ROOM & IDENTITY
@@ -51,19 +51,27 @@ export const ChatProvider = ({ children }) => {
   }, [users, username]);
 
   /* ===========================
-      💬 MESSAGING LOGIC
+      💬 ADVANCED MESSAGING LOGIC
      =========================== */
 
-  const sendMessage = (text) => {
-    if (!text.trim() || !roomId) return;
+  /**
+   * @param content - Text, Base64 Media, or Sticker ID
+   * @param type - 'text', 'image', 'video', 'audio', 'sticker'
+   */
+  const sendMessage = (content, type = "text", metadata = {}) => {
+    if (!content || !roomId) return;
+
     const messageData = {
       id: uuidv4(),
       roomId,
       username,
-      message: text,
-      timestamp: new Date().toISOString(),
-      type: "user",
+      content, 
+      type,
+      metadata, // e.g. { duration: '0:05' }
+      // Human-readable timestamp for the UI
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
+
     setMessages((prev) => [...prev, messageData]);
     socket.emit("send-message", messageData);
   };
@@ -77,46 +85,47 @@ export const ChatProvider = ({ children }) => {
     }, 2000);
   };
 
+  // Logic to add a custom image to your sticker tray
+  const createCustomSticker = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setMyStickers((prev) => [...prev, e.target.result]);
+    };
+    reader.readAsDataURL(file);
+  };
+
   /* ===========================
       🎮 GAME SYNCHRONIZATION
      =========================== */
 
-  // Request a specific game (from Lobby)
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
-    resetScores(); // Always start a fresh game at 0-0
+    resetScores();
     socket.emit("start-game", { roomId, gameId });
   };
 
-  // Reset round points back to zero
   const resetScores = useCallback(() => {
     if (!roomId) return;
     socket.emit("reset-scores", { roomId });
   }, [roomId]);
 
-  // Handle the "Play Again" button (Rematch)
   const sendRematchRequest = () => {
     if (!roomId || !activeGame) return;
     resetScores();
-    // Signal both clients to clear internal board states
     socket.emit("game-data", { roomId, type: "GAME_RESTART_SIGNAL" });
-    // Force the game overlay to re-initialize
     socket.emit("start-game", { roomId, gameId: activeGame });
   };
 
-  // Update round score (Race to 10)
   const updateScore = (winnerName) => {
     if (!roomId) return;
     socket.emit("update-score", { roomId, username: winnerName });
   };
 
-  // Update total match victories (Trophies 🏆)
   const recordMatchWin = (winnerName) => {
     if (!roomId) return;
     socket.emit("match-victory", { roomId, username: winnerName });
   };
 
-  // Update win target settings (Host only)
   const updateWinTarget = (newTarget) => {
     if (!roomId) return;
     socket.emit("update-settings", { roomId, settings: { winTarget: newTarget } });
@@ -133,25 +142,29 @@ export const ChatProvider = ({ children }) => {
      =========================== */
 
   useEffect(() => {
-    // 💬 Chat Listeners
     socket.on("receive-message", (msg) => {
       if (msg.username !== username) setMessages((prev) => [...prev, msg]);
     });
+
     socket.on("online-users", (userList) => setUsers(userList));
-    socket.on("user-typing", ({ username: tName }) => { if (tName !== username) setTypingUser(tName); });
+    
+    socket.on("user-typing", ({ username: tName }) => { 
+      if (tName !== username) setTypingUser(tName); 
+    });
+
     socket.on("user-stop-typing", () => setTypingUser(null));
 
-    // 🎮 Game State Listeners
     socket.on("game-started", (gameId) => setActiveGame(gameId));
+    
     socket.on("game-closed", () => {
       setActiveGame(null);
       setScores({});
     });
 
-    // 📊 Score & Stats Listeners
     socket.on("score-updated", (data) => setScores(data));
     socket.on("scores-reset-confirmed", (data) => setScores(data));
     socket.on("settings-updated", (data) => setSettings(data));
+    
     socket.on("leaderboard-updated", (data) => {
       setLeaderboard(data.leaderboard);
       setStreak(data.streak);
@@ -172,7 +185,6 @@ export const ChatProvider = ({ children }) => {
   return (
     <ChatContext.Provider
       value={{
-        // State
         username,
         roomId,
         setRoomId,
@@ -185,11 +197,12 @@ export const ChatProvider = ({ children }) => {
         leaderboard,
         streak,
         settings,
+        myStickers,
         socket,
-        // Actions
         joinRoom,
         sendMessage,
         handleTyping,
+        createCustomSticker,
         sendGameRequest,
         sendRematchRequest,
         closeGame,
