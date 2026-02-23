@@ -21,7 +21,7 @@ export const ChatProvider = ({ children }) => {
   // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
-  const [myStickers, setMyStickers] = useState([]); // Custom Stickers List
+  const [myStickers, setMyStickers] = useState([]); 
   const typingTimeoutRef = useRef(null);
 
   // --- GAME & STATS STATE ---
@@ -51,15 +51,19 @@ export const ChatProvider = ({ children }) => {
   }, [users, username]);
 
   /* ===========================
-      💬 ADVANCED MESSAGING LOGIC
+      💬 MESSAGING LOGIC (FIXED)
      =========================== */
 
   /**
-   * @param content - Text, Base64 Media, or Sticker ID
-   * @param type - 'text', 'image', 'video', 'audio', 'sticker'
+   * FIXED: Uses destructuring to match MessageInput calls
+   * @param {Object} params - { content, type, metadata }
    */
-  const sendMessage = (content, type = "text", metadata = {}) => {
-    if (!content || !roomId) return;
+  const sendMessage = ({ content, type = "text", metadata = {} }) => {
+    // Prevent crash if data is missing or room isn't set
+    if (!content || !roomId) {
+      console.warn("Cannot send message: Missing content or Room ID");
+      return;
+    }
 
     const messageData = {
       id: uuidv4(),
@@ -67,12 +71,14 @@ export const ChatProvider = ({ children }) => {
       username,
       content, 
       type,
-      metadata, // e.g. { duration: '0:05' }
-      // Human-readable timestamp for the UI
+      metadata,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
+    // Optimistic UI update: Show our own message immediately
     setMessages((prev) => [...prev, messageData]);
+    
+    // Emit to server
     socket.emit("send-message", messageData);
   };
 
@@ -85,22 +91,12 @@ export const ChatProvider = ({ children }) => {
     }, 2000);
   };
 
-  // Logic to add a custom image to your sticker tray
-  const createCustomSticker = (file) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      setMyStickers((prev) => [...prev, e.target.result]);
-    };
-    reader.readAsDataURL(file);
-  };
-
   /* ===========================
       🎮 GAME SYNCHRONIZATION
      =========================== */
 
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
-    resetScores();
     socket.emit("start-game", { roomId, gameId });
   };
 
@@ -121,16 +117,6 @@ export const ChatProvider = ({ children }) => {
     socket.emit("update-score", { roomId, username: winnerName });
   };
 
-  const recordMatchWin = (winnerName) => {
-    if (!roomId) return;
-    socket.emit("match-victory", { roomId, username: winnerName });
-  };
-
-  const updateWinTarget = (newTarget) => {
-    if (!roomId) return;
-    socket.emit("update-settings", { roomId, settings: { winTarget: newTarget } });
-  };
-
   const closeGame = () => {
     if (!roomId) return;
     socket.emit("leave-game", { roomId });
@@ -142,8 +128,11 @@ export const ChatProvider = ({ children }) => {
      =========================== */
 
   useEffect(() => {
+    // Listen for messages from others
     socket.on("receive-message", (msg) => {
-      if (msg.username !== username) setMessages((prev) => [...prev, msg]);
+      if (msg && msg.username !== username) {
+        setMessages((prev) => [...prev, msg]);
+      }
     });
 
     socket.on("online-users", (userList) => setUsers(userList));
@@ -153,7 +142,6 @@ export const ChatProvider = ({ children }) => {
     });
 
     socket.on("user-stop-typing", () => setTypingUser(null));
-
     socket.on("game-started", (gameId) => setActiveGame(gameId));
     
     socket.on("game-closed", () => {
@@ -173,6 +161,8 @@ export const ChatProvider = ({ children }) => {
     return () => {
       socket.off("receive-message");
       socket.off("online-users");
+      socket.off("user-typing");
+      socket.off("user-stop-typing");
       socket.off("game-started");
       socket.off("game-closed");
       socket.off("score-updated");
@@ -200,15 +190,12 @@ export const ChatProvider = ({ children }) => {
         myStickers,
         socket,
         joinRoom,
-        sendMessage,
+        sendMessage, // Now safe to use
         handleTyping,
-        createCustomSticker,
         sendGameRequest,
         sendRematchRequest,
         closeGame,
         updateScore,
-        recordMatchWin,
-        updateWinTarget,
         resetScores
       }}
     >
