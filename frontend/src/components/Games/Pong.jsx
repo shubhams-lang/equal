@@ -23,7 +23,7 @@ const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username
         </div>
         <div className="w-px h-8 bg-white/10 self-center" />
         <div>
-          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent?.split(' ')[1] || 'OPPONENT'}</p>
+          <p className="text-[8px] text-gray-500 font-black uppercase">OPPONENT</p>
           <p className="text-xl font-black">{scores[opponent] || 0}</p>
         </div>
       </div>
@@ -46,15 +46,18 @@ export default function Pong() {
   const canvasRef = useRef(null);
   const [winner, setWinner] = useState(null);
   
-  // Use a ref for the ball to prevent unnecessary re-renders during the high-speed loop
-  const ballRef = useRef({ x: 150, y: 150, dx: 4, dy: 4, size: 6 });
-  const paddlesRef = useRef({ p1Y: 120, p2Y: 120 });
-
-  const isHost = username < opponent;
+  // Game dimensions and constants
   const CW = 300; 
   const CH = 300;
   const P_HEIGHT = 60;
   const P_WIDTH = 8;
+
+  // Refs for high-performance physics (no re-renders)
+  const ballRef = useRef({ x: 150, y: 150, dx: 4, dy: 4, size: 6 });
+  const paddlesRef = useRef({ p1Y: 120, p2Y: 120 });
+
+  // Deterministic Host: Player with alphabetically first name handles physics
+  const isHost = username < opponent;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -63,7 +66,7 @@ export default function Pong() {
 
     const handleInput = (clientY) => {
       const rect = canvas.getBoundingClientRect();
-      // Calculate Y relative to the actual displayed height of the canvas
+      // Precise scaling from screen pixels to 300x300 canvas space
       const scaleY = CH / rect.height;
       const relativeY = (clientY - rect.top) * scaleY - P_HEIGHT / 2;
       const clampedY = Math.max(0, Math.min(CH - P_HEIGHT, relativeY));
@@ -97,20 +100,21 @@ export default function Pong() {
     const gameLoop = setInterval(() => {
       if (winner) return;
 
+      // 1. Logic (Host Only)
       if (isHost) {
         let b = ballRef.current;
         b.x += b.dx;
         b.y += b.dy;
 
-        // Bounce Walls
+        // Wall Bounce
         if (b.y <= 0 || b.y >= CH) b.dy *= -1;
 
-        // Bounce Paddles
+        // Paddle Collision
         if (b.x <= 20 && b.y > paddlesRef.current.p1Y && b.y < paddlesRef.current.p1Y + P_HEIGHT) {
-          b.dx = Math.abs(b.dx) + 0.2; // Slight speed up
+          b.dx = Math.abs(b.dx);
         }
         if (b.x >= CW - 20 && b.y > paddlesRef.current.p2Y && b.y < paddlesRef.current.p2Y + P_HEIGHT) {
-          b.dx = -(Math.abs(b.dx) + 0.2);
+          b.dx = -Math.abs(b.dx);
         }
 
         // Scoring
@@ -122,25 +126,28 @@ export default function Pong() {
           updateScore(username);
         }
         
+        // Broadcast ball position to Guest
         socket.emit('game-data', { roomId, type: 'SYNC_BALL', ball: b });
       }
 
-      // Render
-      ctx.fillStyle = '#0b141a'; // Dark background
+      // 2. Rendering
+      ctx.fillStyle = '#0b141a';
       ctx.fillRect(0, 0, CW, CH);
       
+      // Net
       ctx.setLineDash([5, 5]);
       ctx.strokeStyle = 'rgba(255,255,255,0.1)';
       ctx.beginPath(); ctx.moveTo(CW/2, 0); ctx.lineTo(CW/2, CH); ctx.stroke();
 
-      // Draw Paddles
+      // Left Paddle (Host)
       ctx.fillStyle = isHost ? '#2481cc' : '#333'; 
       ctx.fillRect(10, paddlesRef.current.p1Y, P_WIDTH, P_HEIGHT);
       
+      // Right Paddle (Guest)
       ctx.fillStyle = !isHost ? '#2481cc' : '#333';
       ctx.fillRect(CW - P_WIDTH - 10, paddlesRef.current.p2Y, P_WIDTH, P_HEIGHT);
 
-      // Draw Ball
+      // Ball
       ctx.fillStyle = '#fff';
       ctx.beginPath();
       ctx.arc(ballRef.current.x, ballRef.current.y, ballRef.current.size, 0, Math.PI * 2);
@@ -165,7 +172,7 @@ export default function Pong() {
   }, [socket, roomId, winner, opponent, isHost, username, updateScore]);
 
   return (
-    <div className="relative w-full aspect-square max-w-[400px] bg-[#111b21] rounded-3xl overflow-hidden border-4 border-[#202c33] shadow-2xl">
+    <div className="relative w-full aspect-square max-w-[350px] bg-[#111b21] rounded-3xl overflow-hidden border-4 border-[#202c33] shadow-2xl">
       <canvas 
         ref={canvasRef} 
         width={300} 

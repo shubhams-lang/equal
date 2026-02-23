@@ -13,7 +13,7 @@ const server = http.createServer(app);
 // Configure Socket.io with CORS for your frontend
 const io = new Server(server, {
   cors: {
-    origin: "*", // In production, replace with your Vercel URL
+    origin: "*", // Replace with your specific Vercel/Frontend URL in production
     methods: ["GET", "POST"]
   }
 });
@@ -36,8 +36,6 @@ app.post("/create-room", (req, res) => {
 /* ===========================
     SOCKET.IO LOGIC
    =========================== */
-
-
 
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
@@ -65,7 +63,7 @@ io.on("connection", (socket) => {
 
   // --- MESSAGING ---
   socket.on("send-message", (data) => {
-    // Send to everyone else in the room
+    // Broadcast to everyone else in the room
     socket.to(data.roomId).emit("receive-message", data);
   });
 
@@ -79,27 +77,35 @@ io.on("connection", (socket) => {
   });
 
   /* ===========================
-      🎮 GAME LOGIC (The Fix)
+      🎮 GAME LOGIC (The Relay)
      =========================== */
 
-  // This is triggered when sendGameRequest is called in ChatContext
+  // Starts the game overlay for EVERYONE in the room
   socket.on("start-game", ({ roomId, gameId }) => {
     console.log(`Starting ${gameId} in room ${roomId}`);
-    // Use io.to(roomId) so the SENDER also receives the signal 
-    // to open their game overlay
     io.to(roomId).emit("game-started", gameId);
+  });
+
+  // High-speed relay for coordinate data (Pong paddles, ball sync, etc.)
+  socket.on("game-data", (data) => {
+    // Use socket.to so the sender doesn't receive their own data back
+    // This prevents "jitter" and infinite loops
+    socket.to(data.roomId).emit("game-data", data);
+  });
+
+  socket.on("update-score", ({ roomId, username }) => {
+    // In a real app, you'd increment a DB here. For now, we broadcast the win.
+    io.to(roomId).emit("score-updated", { [username]: "win" });
   });
 
   socket.on("leave-game", ({ roomId }) => {
     io.to(roomId).emit("game-closed");
   });
 
-  socket.on("update-score", ({ roomId, username, score }) => {
-    // Broadcast the new score to everyone in the room
-    io.to(roomId).emit("score-updated", { [username]: score });
-  });
+  /* ===========================
+      🚪 DISCONNECT LOGIC
+     =========================== */
 
-  // --- DISCONNECT ---
   socket.on("disconnect", () => {
     const userData = socketToUser.get(socket.id);
     if (userData) {
@@ -116,6 +122,7 @@ io.on("connection", (socket) => {
       }
       socketToUser.delete(socket.id);
     }
+    console.log("User disconnected:", socket.id);
   });
 });
 

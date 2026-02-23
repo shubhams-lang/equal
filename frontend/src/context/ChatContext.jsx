@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
-// Replace with your actual Render URL
+// Ensure this matches your backend deployment URL
 const SOCKET_URL = "https://equal.onrender.com";
 
 const socket = io(SOCKET_URL, {
@@ -13,11 +13,12 @@ const socket = io(SOCKET_URL, {
 });
 
 export const ChatProvider = ({ children }) => {
-  // --- USER & ROOM STATE ---
+  // --- AUTH & ROOM STATE ---
   const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState(null);
   const [users, setUsers] = useState([]);
-  
+  const [opponent, setOpponent] = useState(null);
+
   // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
   const [typingUser, setTypingUser] = useState(null);
@@ -28,19 +29,28 @@ export const ChatProvider = ({ children }) => {
   const [scores, setScores] = useState({});
 
   /* ===========================
-      🚪 ROOM ACTIONS
+      🚪 ROOM & IDENTITY
      =========================== */
 
   const joinRoom = (id, name) => {
     if (!id || !name) return;
     setRoomId(id);
     setUsername(name);
-    setMessages([]); // Clear chat history for new room
+    setMessages([]); // Reset chat history for the new session
     socket.emit("join-room", { roomId: id, username: name });
   };
 
+  // Logic to determine who you are playing against
+  useEffect(() => {
+    if (users.length > 0 && username) {
+      // Find the first user in the list that isn't you
+      const foundOpponent = users.find((u) => u !== username);
+      setOpponent(foundOpponent || null);
+    }
+  }, [users, username]);
+
   /* ===========================
-      💬 MESSAGE ACTIONS
+      💬 MESSAGING LOGIC
      =========================== */
 
   const sendMessage = (text) => {
@@ -52,17 +62,12 @@ export const ChatProvider = ({ children }) => {
       username,
       message: text,
       timestamp: new Date().toISOString(),
-      type: "user"
+      type: "user",
     };
 
-    // 1. Add to local state immediately so sender sees it
+    // Optimistic Update: Add to local state immediately
     setMessages((prev) => [...prev, messageData]);
-
-    // 2. Emit to others
     socket.emit("send-message", messageData);
-    
-    // 3. Stop typing status
-    socket.emit("stop-typing", { roomId, username });
   };
 
   const handleTyping = () => {
@@ -70,21 +75,25 @@ export const ChatProvider = ({ children }) => {
     socket.emit("typing", { roomId, username });
 
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-    
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stop-typing", { roomId, username });
     }, 2000);
   };
 
   /* ===========================
-      🎮 GAME ACTIONS
+      🎮 GAME SYNCHRONIZATION
      =========================== */
 
+  // Request to start a new game
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
-    console.log(`🎮 Requesting Game: ${gameId} for Room: ${roomId}`);
-    // We emit to the server, which will broadcast "game-started" to everyone
     socket.emit("start-game", { roomId, gameId });
+  };
+
+  // Logic for the GameOverOverlay rematch button
+  const sendRematchRequest = () => {
+    if (!roomId || !activeGame) return;
+    socket.emit("start-game", { roomId, gameId: activeGame });
   };
 
   const closeGame = () => {
@@ -93,42 +102,36 @@ export const ChatProvider = ({ children }) => {
     setActiveGame(null);
   };
 
-  const updateScore = (newScore) => {
-    socket.emit("update-score", { roomId, username, score: newScore });
+  const updateScore = (winnerName) => {
+    setScores((prev) => ({
+      ...prev,
+      [winnerName]: (prev[winnerName] || 0) + 1,
+    }));
+    socket.emit("update-score", { roomId, username: winnerName });
   };
 
   /* ===========================
-      📡 SOCKET LISTENERS
+      📡 GLOBAL SOCKET LISTENERS
      =========================== */
 
   useEffect(() => {
-    // Message Listener
+    // Chat & Users
     socket.on("receive-message", (msg) => {
-      // Only add if it's from someone else (to prevent duplicates)
       if (msg.username !== username) {
         setMessages((prev) => [...prev, msg]);
       }
     });
 
-    // Room Presence Listeners
-    socket.on("online-users", (userList) => {
-      setUsers(userList);
-    });
+    socket.on("online-users", (userList) => setUsers(userList));
 
-    // Typing Listeners
     socket.on("user-typing", ({ username: typingName }) => {
-      if (typingName !== username) {
-        setTypingUser(typingName);
-      }
+      if (typingName !== username) setTypingUser(typingName);
     });
 
-    socket.on("user-stop-typing", () => {
-      setTypingUser(null);
-    });
+    socket.on("user-stop-typing", () => setTypingUser(null));
 
-    // Game Sync Listeners
+    // Game Events
     socket.on("game-started", (gameId) => {
-      console.log("🚀 Game Signal Received from Server:", gameId);
       setActiveGame(gameId);
     });
 
@@ -137,10 +140,10 @@ export const ChatProvider = ({ children }) => {
     });
 
     socket.on("score-updated", (data) => {
+      // Data expected: { username: score }
       setScores((prev) => ({ ...prev, ...data }));
     });
 
-    // Cleanup on unmount
     return () => {
       socket.off("receive-message");
       socket.off("online-users");
@@ -152,10 +155,6 @@ export const ChatProvider = ({ children }) => {
     };
   }, [username, roomId]);
 
-  /* ===========================
-      📦 EXPORT PROVIDER
-     =========================== */
-
   return (
     <ChatContext.Provider
       value={{
@@ -164,6 +163,7 @@ export const ChatProvider = ({ children }) => {
         setRoomId,
         messages,
         users,
+        opponent, // CRITICAL for Pong paddle sync
         typingUser,
         activeGame,
         scores,
@@ -171,6 +171,7 @@ export const ChatProvider = ({ children }) => {
         sendMessage,
         handleTyping,
         sendGameRequest,
+        sendRematchRequest,
         closeGame,
         updateScore,
         socket,
