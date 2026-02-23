@@ -4,108 +4,178 @@ import { v4 as uuidv4 } from "uuid";
 
 export const ChatContext = createContext();
 
-const SOCKET_URL = "https://equal.onrender.com/";
+// Replace with your actual Render URL
+const SOCKET_URL = "https://equal.onrender.com";
 
 const socket = io(SOCKET_URL, {
   transports: ["websocket"],
-  withCredentials: true
+  withCredentials: true,
 });
 
 export const ChatProvider = ({ children }) => {
-  const [username, setUsername] = useState(""); 
+  // --- USER & ROOM STATE ---
+  const [username, setUsername] = useState("");
   const [roomId, setRoomId] = useState(null);
+  const [users, setUsers] = useState([]);
+  
+  // --- MESSAGING STATE ---
   const [messages, setMessages] = useState([]);
-  const [users, setUsers] = useState([]); 
   const [typingUser, setTypingUser] = useState(null);
   const typingTimeoutRef = useRef(null);
 
-  /* 🚪 ROOM ACTIONS */
-  const joinRoom = (targetRoomId, chosenIdentity) => {
-    if (!targetRoomId || !chosenIdentity) return;
-    setRoomId(targetRoomId);
-    setUsername(chosenIdentity);
-    setMessages([]);
-    socket.emit("join-room", { roomId: targetRoomId, username: chosenIdentity });
+  // --- GAME STATE ---
+  const [activeGame, setActiveGame] = useState(null);
+  const [scores, setScores] = useState({});
+
+  /* ===========================
+      🚪 ROOM ACTIONS
+     =========================== */
+
+  const joinRoom = (id, name) => {
+    if (!id || !name) return;
+    setRoomId(id);
+    setUsername(name);
+    setMessages([]); // Clear chat history for new room
+    socket.emit("join-room", { roomId: id, username: name });
   };
 
-  /* 📢 SYSTEM NOTIFICATIONS */
-  const addSystemMessage = (text) => {
-    setMessages((prev) => [
-      ...prev, 
-      { id: uuidv4(), message: text, type: "system", timestamp: new Date().toISOString() }
-    ]);
-  };
+  /* ===========================
+      💬 MESSAGE ACTIONS
+     =========================== */
 
-  /* 💬 MESSAGING LOGIC */
   const sendMessage = (text) => {
-    if (!text || !roomId) return;
-    
-    // Stop typing indicator
-    socket.emit("stop-typing", { roomId, username });
-    
+    if (!text.trim() || !roomId) return;
+
     const messageData = {
       id: uuidv4(),
       roomId,
       username,
       message: text,
-      type: "user",
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      type: "user"
     };
-    
-    // ✅ FIX: Add to local state IMMEDIATELY so you see your own message
-    setMessages((prev) => [...prev, { ...messageData, status: "sent" }]);
 
-    // Send to others via server
+    // 1. Add to local state immediately so sender sees it
+    setMessages((prev) => [...prev, messageData]);
+
+    // 2. Emit to others
     socket.emit("send-message", messageData);
+    
+    // 3. Stop typing status
+    socket.emit("stop-typing", { roomId, username });
   };
 
-  /* ⌨️ TYPING LOGIC */
   const handleTyping = () => {
-    if (!roomId || !username) return;
+    if (!roomId) return;
     socket.emit("typing", { roomId, username });
+
     if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+    
     typingTimeoutRef.current = setTimeout(() => {
       socket.emit("stop-typing", { roomId, username });
     }, 2000);
   };
 
-  /* 📡 SOCKET LISTENERS */
+  /* ===========================
+      🎮 GAME ACTIONS
+     =========================== */
+
+  const sendGameRequest = (gameId) => {
+    if (!roomId) return;
+    console.log(`🎮 Requesting Game: ${gameId} for Room: ${roomId}`);
+    // We emit to the server, which will broadcast "game-started" to everyone
+    socket.emit("start-game", { roomId, gameId });
+  };
+
+  const closeGame = () => {
+    if (!roomId) return;
+    socket.emit("leave-game", { roomId });
+    setActiveGame(null);
+  };
+
+  const updateScore = (newScore) => {
+    socket.emit("update-score", { roomId, username, score: newScore });
+  };
+
+  /* ===========================
+      📡 SOCKET LISTENERS
+     =========================== */
+
   useEffect(() => {
-    const handleReceiveMessage = (msg) => {
-      // ✅ FIX: Only add messages if they are NOT from you (already added in sendMessage)
+    // Message Listener
+    socket.on("receive-message", (msg) => {
+      // Only add if it's from someone else (to prevent duplicates)
       if (msg.username !== username) {
-        setMessages((prev) => [...prev, { ...msg, status: "delivered" }]);
+        setMessages((prev) => [...prev, msg]);
       }
-    };
+    });
 
-    socket.on("receive-message", handleReceiveMessage);
-    socket.on("online-users", (list) => setUsers(list));
-    socket.on("user-online", (user) => {
-      if (user !== username) addSystemMessage(`${user} joined the room`);
+    // Room Presence Listeners
+    socket.on("online-users", (userList) => {
+      setUsers(userList);
     });
-    socket.on("user-offline", (user) => {
-      if (user) addSystemMessage(`${user} left the room`);
-    });
-    socket.on("user-typing", ({ username: remoteUser }) => {
-      if (remoteUser !== username) setTypingUser(remoteUser);
-    });
-    socket.on("user-stop-typing", () => setTypingUser(null));
 
+    // Typing Listeners
+    socket.on("user-typing", ({ username: typingName }) => {
+      if (typingName !== username) {
+        setTypingUser(typingName);
+      }
+    });
+
+    socket.on("user-stop-typing", () => {
+      setTypingUser(null);
+    });
+
+    // Game Sync Listeners
+    socket.on("game-started", (gameId) => {
+      console.log("🚀 Game Signal Received from Server:", gameId);
+      setActiveGame(gameId);
+    });
+
+    socket.on("game-closed", () => {
+      setActiveGame(null);
+    });
+
+    socket.on("score-updated", (data) => {
+      setScores((prev) => ({ ...prev, ...data }));
+    });
+
+    // Cleanup on unmount
     return () => {
       socket.off("receive-message");
       socket.off("online-users");
-      socket.off("user-online");
-      socket.off("user-offline");
       socket.off("user-typing");
       socket.off("user-stop-typing");
+      socket.off("game-started");
+      socket.off("game-closed");
+      socket.off("score-updated");
     };
-  }, [roomId, username]); 
+  }, [username, roomId]);
+
+  /* ===========================
+      📦 EXPORT PROVIDER
+     =========================== */
 
   return (
-    <ChatContext.Provider value={{
-      username, roomId, setRoomId, messages, users, typingUser,
-      joinRoom, sendMessage, handleTyping, socket
-    }}>
+    <ChatContext.Provider
+      value={{
+        username,
+        roomId,
+        setRoomId,
+        messages,
+        users,
+        typingUser,
+        activeGame,
+        scores,
+        joinRoom,
+        sendMessage,
+        handleTyping,
+        sendGameRequest,
+        closeGame,
+        updateScore,
+        socket,
+      }}
+    >
       {children}
     </ChatContext.Provider>
   );
