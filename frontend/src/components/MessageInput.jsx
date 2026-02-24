@@ -145,7 +145,7 @@ export default function MessageInput() {
 
       {/* STICKER TRAY (Fixed Positioning) */}
       {showStickers && (
-        <div className="absolute bottom-[calc(100%+12px)] left-4 w-[320px] bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-50 flex flex-col overflow-visible animate-in slide-in-from-bottom-2 origin-bottom-left">
+        <div className="absolute bottom-[calc(100%+12px)] left-4 w-[0px] bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-50 flex flex-col overflow-visible animate-in slide-in-from-bottom-2 origin-bottom-left">
           
           {/* Header */}
           <div className="p-3 bg-black/20 flex items-center justify-between border-b border-white/5 rounded-t-3xl">
