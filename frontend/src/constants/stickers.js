@@ -1,23 +1,15 @@
 // src/constants/stickers.js
 
+// src/constants/stickers.js
 export const STICKER_PACKS = [
   {
-    name: "Classic",
-    id: "classic",
+    id: "pack1",
+    name: "Emoji Pack",
     stickers: [
-      { id: "s1", url: "https://cdn-icons-png.flaticon.com/512/4727/4727266.png" },
-      { id: "s2", url: "https://cdn-icons-png.flaticon.com/512/4727/4727289.png" },
-      { id: "s3", url: "https://cdn-icons-png.flaticon.com/512/4727/4727210.png" },
-      { id: "s4", url: "https://cdn-icons-png.flaticon.com/512/4727/4727237.png" },
-    ]
-  },
-  {
-    name: "Cyber",
-    id: "cyber",
-    stickers: [
-      { id: "c1", url: "https://cdn-icons-png.flaticon.com/512/6298/6298357.png" },
-      { id: "c2", url: "https://cdn-icons-png.flaticon.com/512/6298/6298379.png" },
-      { id: "c3", url: "https://cdn-icons-png.flaticon.com/512/6298/6298333.png" },
+      { id: "s1", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f600/512.png" },
+      { id: "s2", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f60d/512.png" },
+      { id: "s3", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f92c/512.png" },
+      { id: "s4", url: "https://fonts.gstatic.com/s/e/notoemoji/latest/1f644/512.png" },
     ]
   }
 ];
