@@ -143,14 +143,14 @@ export default function MessageInput() {
         </div>
       )}
 
-      {/* STICKER TRAY (Fixed Positioning) */}
+      {/* STICKER TRAY (Fixed Width and Positioning) */}
       {showStickers && (
-        <div className="absolute bottom-[calc(100%+12px)] left-4 w-[0px] bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-50 flex flex-col overflow-visible animate-in slide-in-from-bottom-2 origin-bottom-left">
+        <div className="absolute bottom-[calc(100%+12px)] left-0 w-[320px] bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-[100] flex flex-col overflow-visible animate-in fade-in slide-in-from-bottom-2 origin-bottom-left">
           
           {/* Header */}
           <div className="p-3 bg-black/20 flex items-center justify-between border-b border-white/5 rounded-t-3xl">
             <div className="flex flex-col gap-1">
-              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Studio</span>
+              <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sticker Studio</span>
               <div className="flex gap-2">
                 <button onClick={backupStickers} className="text-[9px] text-blue-400 font-bold hover:underline">BACKUP</button>
                 <button onClick={() => restoreInputRef.current.click()} className="text-[9px] text-green-400 font-bold hover:underline">RESTORE</button>
@@ -167,16 +167,18 @@ export default function MessageInput() {
           <div className="p-2 border-b border-white/5">
             <div className="flex items-center bg-white/5 rounded-xl px-3 py-2 border border-white/5">
               <MagnifyingGlassIcon className="w-4 h-4 text-slate-500 mr-2" />
-              <input type="text" placeholder="Search..." className="bg-transparent text-xs text-white outline-none w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+              <input type="text" placeholder="Search stickers..." className="bg-transparent text-xs text-white outline-none w-full" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
             </div>
           </div>
 
-          {/* Sticker Content */}
+          {/* Sticker Content Area */}
           <div className="max-h-64 overflow-y-auto p-4 custom-scrollbar bg-[#1c242b]">
-            {/* Favorites */}
+            {/* Favorites Section */}
             {favorites.length > 0 && searchTerm === "" && (
               <div className="mb-4">
-                <div className="text-[9px] font-bold text-yellow-500 uppercase mb-2 flex items-center gap-1"><StarIcon className="w-3 h-3 fill-yellow-500"/> Favorites</div>
+                <div className="text-[9px] font-bold text-yellow-500 uppercase mb-2 flex items-center gap-1">
+                  <StarIcon className="w-3 h-3 fill-yellow-500"/> Favorites
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {favorites.map((url, i) => (
                     <button key={`fav-${i}`} onClick={() => sendSticker(url)} className="w-11 h-11 hover:scale-110 transition-transform">
@@ -187,7 +189,7 @@ export default function MessageInput() {
               </div>
             )}
 
-            {/* Main Grid */}
+            {/* Grid for Stickers */}
             <div className="grid grid-cols-4 gap-3">
               {/* Custom Stickers */}
               {searchTerm === "" && myStickers.map((url, i) => (
@@ -195,11 +197,16 @@ export default function MessageInput() {
                   <button onClick={() => sendSticker(url)} className="w-full h-full p-1 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
                     <img src={url} className="w-full h-full object-cover rounded-md" alt="custom" />
                   </button>
-                  <button onClick={(e) => { e.stopPropagation(); deleteCustomSticker(i); }} className="absolute -top-1 -right-1 hidden group-hover:flex w-5 h-5 bg-red-500 rounded-full text-[10px] items-center justify-center text-white shadow-lg">✕</button>
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); deleteCustomSticker(i); }} 
+                    className="absolute -top-1 -right-1 hidden group-hover:flex w-5 h-5 bg-red-500 rounded-full text-[10px] items-center justify-center text-white shadow-lg"
+                  >
+                    ✕
+                  </button>
                 </div>
               ))}
 
-              {/* Default Library */}
+              {/* Default Library Stickers */}
               {filteredDefaultStickers.map((s) => (
                 <div key={s.id} className="group relative aspect-square">
                   <button onClick={() => sendSticker(s.url)} className="w-full h-full hover:scale-110 transition-transform flex items-center justify-center">
@@ -216,8 +223,8 @@ export default function MessageInput() {
             </div>
           </div>
 
-          {/* Pointer Triangle */}
-          <div className="absolute bottom-[-6px] left-4 w-3 h-3 bg-[#1c242b] rotate-45 border-r border-b border-white/10"></div>
+          {/* Pointer Triangle to Anchor the Tray to the Smile Icon */}
+          <div className="absolute bottom-[-6px] left-5 w-3 h-3 bg-[#1c242b] rotate-45 border-r border-b border-white/10"></div>
         </div>
       )}
 
@@ -239,7 +246,7 @@ export default function MessageInput() {
           type="text" 
           value={text} 
           onChange={handleInputChange} 
-          placeholder={isRecording ? "Recording audio..." : "Type a message"} 
+          placeholder={isRecording ? "Recording audio..." : "Message"} 
           className="flex-1 bg-transparent outline-none text-sm text-white px-2 placeholder:text-slate-500" 
           disabled={isRecording}
         />
