@@ -79,7 +79,12 @@ export const ChatProvider = ({ children }) => {
     }, 2000);
   };
 
+  /* ===========================
+      🎨 STICKER STUDIO LOGIC
+     =========================== */
+
   const createCustomSticker = (file) => {
+    if (!file) return;
     const reader = new FileReader();
     reader.readAsDataURL(file);
     reader.onload = (event) => {
@@ -87,13 +92,20 @@ export const ChatProvider = ({ children }) => {
       img.src = event.target.result;
       img.onload = () => {
         const canvas = document.createElement("canvas");
-        const MAX_WIDTH = 320;
-        const scaleSize = MAX_WIDTH / img.width;
-        canvas.width = MAX_WIDTH;
-        canvas.height = img.height * scaleSize;
         const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+        
+        // Optimize: Center-Crop to 250x250 square
+        const size = 250;
+        canvas.width = size;
+        canvas.height = size;
+        
+        const sourceSize = Math.min(img.width, img.height);
+        const sourceX = (img.width - sourceSize) / 2;
+        const sourceY = (img.height - sourceSize) / 2;
+
+        ctx.drawImage(img, sourceX, sourceY, sourceSize, sourceSize, 0, 0, size, size);
+        
+        const compressedBase64 = canvas.toDataURL("image/png"); // PNG for transparency
         setMyStickers((prev) => {
           const updated = [compressedBase64, ...prev].slice(0, 24);
           localStorage.setItem("custom_stickers", JSON.stringify(updated));
@@ -111,30 +123,58 @@ export const ChatProvider = ({ children }) => {
     });
   };
 
+  const backupStickers = () => {
+    if (myStickers.length === 0) return alert("No stickers to backup!");
+    const data = JSON.stringify(myStickers);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `stickers-backup-${new Date().toISOString().split('T')[0]}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const restoreStickers = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const imported = JSON.parse(e.target.result);
+        if (Array.isArray(imported)) {
+          setMyStickers((prev) => {
+            const merged = [...new Set([...imported, ...prev])].slice(0, 24);
+            localStorage.setItem("custom_stickers", JSON.stringify(merged));
+            return merged;
+          });
+          alert("Restore complete!");
+        }
+      } catch (err) {
+        alert("Invalid backup file.");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   /* ===========================
-      🎮 GAME LOGIC (ADDED MISSING)
+      🎮 GAME LOGIC
      =========================== */
 
-  // 1. Send Request to start a game
   const sendGameRequest = (gameId) => {
     if (!roomId) return;
-    console.log("Starting game:", gameId);
     socket.emit("start-game", { roomId, gameId });
   };
 
-  // 2. Update scores during a game
   const updateScore = (winnerName) => {
     if (!roomId) return;
     socket.emit("update-score", { roomId, username: winnerName });
   };
 
-  // 3. Reset scores
   const resetScores = useCallback(() => {
     if (!roomId) return;
     socket.emit("reset-scores", { roomId });
   }, [roomId]);
 
-  // 4. Close/Exit game
   const closeGame = () => {
     if (!roomId) return;
     socket.emit("leave-game", { roomId });
@@ -158,11 +198,7 @@ export const ChatProvider = ({ children }) => {
 
     socket.on("user-stop-typing", () => setTypingUser(null));
 
-    // Game Specific Listeners
-    socket.on("game-started", (gameId) => {
-      console.log("Game started event received:", gameId);
-      setActiveGame(gameId);
-    });
+    socket.on("game-started", (gameId) => setActiveGame(gameId));
 
     socket.on("game-closed", () => {
       setActiveGame(null);
@@ -212,9 +248,11 @@ export const ChatProvider = ({ children }) => {
         handleTyping,
         createCustomSticker,
         deleteCustomSticker,
-        sendGameRequest, // ADDED
-        updateScore,     // ADDED
-        closeGame,       // ADDED
+        backupStickers,
+        restoreStickers,
+        sendGameRequest,
+        updateScore,
+        closeGame,
         resetScores
       }}
     >
