@@ -1,19 +1,24 @@
 import React, { useContext } from "react";
 import { ChatContext } from "../context/ChatContext";
+import { ArrowDownTrayIcon } from "@heroicons/react/24/outline";
 
 export default function Message({ msg }) {
-  // Destructure with fallbacks for your backend schema
   const { username: msgUser, type, timestamp, system } = msg;
-  
-  // Important: Check both 'content' and 'message' fields
   const content = msg.content || msg.message;
-  
   const { username: currentUser } = useContext(ChatContext);
-  
-  // Logic to handle "Avatar Nickname" string comparisons
   const isOwn = msgUser === currentUser;
 
-  // --- 1. SYSTEM MESSAGE RENDER ---
+  // Helper to trigger file downloads for shared media
+  const downloadMedia = (url, fileName) => {
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName || `media_${Date.now()}`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // --- SYSTEM MESSAGE RENDER ---
   if (type === "system" || system) {
     return (
       <div className="flex justify-center my-4 animate-in fade-in zoom-in duration-500">
@@ -27,7 +32,6 @@ export default function Message({ msg }) {
   return (
     <div className={`flex gap-3 items-end mb-4 transition-all duration-300 ${isOwn ? "flex-row-reverse" : "flex-row"}`}>
       
-      {/* --- 2. AVATAR (Others only) --- */}
       {!isOwn && (
         <div className="relative w-9 h-9 shrink-0 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-xs font-bold shadow-lg shadow-blue-500/20 border border-white/10">
           {msgUser ? msgUser.split(' ').pop().charAt(0).toUpperCase() : "?"}
@@ -35,7 +39,6 @@ export default function Message({ msg }) {
         </div>
       )}
 
-      {/* --- 3. BUBBLE CONTENT --- */}
       <div className={`relative max-w-[75%] md:max-w-md rounded-2xl backdrop-blur-xl border transition-all ${
           isOwn
             ? "bg-gradient-to-br from-blue-600 to-blue-500 text-white border-blue-400/30 shadow-[0_8px_25px_rgba(37,99,235,0.2)] rounded-tr-none"
@@ -56,27 +59,44 @@ export default function Message({ msg }) {
             <div className="text-sm leading-relaxed break-words">{content}</div>
           )}
 
-          {/* IMAGE / CAMERA PHOTO */}
+          {/* IMAGE / GALLERY PHOTO */}
           {type === "image" && (
-            <div className="rounded-xl overflow-hidden border border-white/10 mt-1 bg-black/20">
+            <div className="group relative rounded-xl overflow-hidden border border-white/10 mt-1 bg-black/20">
               <img 
                 src={content} 
                 alt="Shared" 
                 className="max-w-full h-auto block hover:scale-105 transition-transform duration-500"
-                onError={(e) => { e.target.src = "https://via.placeholder.com/300x200?text=Image+Expired"; }}
               />
+              <button 
+                onClick={() => downloadMedia(content, `img_${timestamp}.jpg`)}
+                className="absolute top-2 right-2 p-1.5 bg-black/50 backdrop-blur-md rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4 text-white" />
+              </button>
+            </div>
+          )}
+
+          {/* VIDEO (NEW) */}
+          {type === "video" && (
+            <div className="group relative rounded-xl overflow-hidden border border-white/10 mt-1 bg-black/20 max-w-[280px]">
+              <video 
+                src={content} 
+                controls 
+                className="w-full h-auto block"
+              />
+              <button 
+                onClick={() => downloadMedia(content, `vid_${timestamp}.mp4`)}
+                className="absolute top-2 right-2 p-1.5 bg-black/50 backdrop-blur-md rounded-lg opacity-0 group-hover:opacity-100 transition-opacity z-10"
+              >
+                <ArrowDownTrayIcon className="w-4 h-4 text-white" />
+              </button>
             </div>
           )}
 
           {/* CUSTOM STICKER */}
           {type === "sticker" && (
             <div className="w-32 h-32 py-1 animate-in zoom-in duration-300">
-              <img 
-                src={content} 
-                alt="Sticker" 
-                className="w-full h-full object-contain" 
-                onError={(e) => { e.target.style.display = 'none'; }}
-              />
+              <img src={content} alt="Sticker" className="w-full h-full object-contain" />
             </div>
           )}
 
@@ -90,7 +110,6 @@ export default function Message({ msg }) {
             </div>
           )}
 
-          {/* --- TIMESTAMP --- */}
           <div className={`text-[8px] mt-1 opacity-40 font-bold uppercase tracking-tighter ${isOwn ? "text-right" : "text-left"}`}>
              {timestamp || new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </div>

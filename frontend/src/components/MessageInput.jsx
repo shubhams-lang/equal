@@ -10,10 +10,8 @@ import {
   XMarkIcon,
   PlusIcon,
   MagnifyingGlassIcon,
-  ClockIcon,
-  CloudArrowDownIcon,
-  CloudArrowUpIcon,
-  StarIcon 
+  StarIcon,
+  PhotoIcon 
 } from "@heroicons/react/24/outline";
 
 export default function MessageInput() {
@@ -41,8 +39,9 @@ export default function MessageInput() {
   const videoRef = useRef(null);
   const mediaRecorder = useRef(null);
   const audioChunks = useRef([]);
-  const fileInputRef = useRef(null);
+  const fileInputRef = useRef(null); // For custom sticker creation
   const restoreInputRef = useRef(null);
+  const galleryInputRef = useRef(null); // NEW: For gallery media sharing
 
   // Load recently used stickers from storage
   useEffect(() => {
@@ -51,6 +50,32 @@ export default function MessageInput() {
   }, []);
 
   // --- HANDLERS ---
+  
+  // Gallery Upload Handler (Images & Videos)
+  const handleGallerySelect = (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach((file) => {
+      const isVideo = file.type.startsWith("video/");
+      const reader = new FileReader();
+
+      reader.onloadend = () => {
+        sendMessage({
+          type: isVideo ? "video" : "image",
+          content: reader.result,
+          metadata: { name: file.name, size: file.size }
+        });
+      };
+
+      // Basic size check (20MB limit recommended for Socket.io stability)
+      if (file.size > 20 * 1024 * 1024) {
+        alert("File too large. Please keep it under 20MB.");
+        return;
+      }
+      reader.readAsDataURL(file);
+    });
+    e.target.value = ""; 
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file && createCustomSticker) {
@@ -91,7 +116,7 @@ export default function MessageInput() {
     setSearchTerm("");
   };
 
-  // --- MEDIA LOGIC ---
+  // --- MEDIA LOGIC (Camera & Audio) ---
   const startCamera = async () => {
     setShowCamera(true);
     try {
@@ -132,38 +157,38 @@ export default function MessageInput() {
 
   return (
     <div className="relative w-full px-4 pb-4">
+      {/* HIDDEN INPUTS */}
+      <input type="file" ref={galleryInputRef} className="hidden" accept="image/*,video/*" multiple onChange={handleGallerySelect} />
+      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+      <input type="file" ref={restoreInputRef} className="hidden" accept=".json" onChange={(e) => restoreStickers(e.target.files[0])} />
+
       {/* CAMERA OVERLAY */}
       {showCamera && (
         <div className="absolute bottom-24 left-4 right-4 bg-black rounded-3xl overflow-hidden border-2 border-blue-500 shadow-2xl z-50 max-w-sm mx-auto">
           <video ref={videoRef} autoPlay playsInline className="w-full h-auto" />
           <div className="p-4 flex justify-around bg-black/80">
-            <button onClick={stopCamera} className="p-2 text-white"><XMarkIcon className="w-6 h-6"/></button>
-            <button onClick={capturePhoto} className="p-4 bg-white rounded-full"><div className="w-4 h-4 bg-red-500 rounded-full"/></button>
+            <button type="button" onClick={stopCamera} className="p-2 text-white"><XMarkIcon className="w-6 h-6"/></button>
+            <button type="button" onClick={capturePhoto} className="p-4 bg-white rounded-full"><div className="w-4 h-4 bg-red-500 rounded-full"/></button>
           </div>
         </div>
       )}
 
-      {/* STICKER TRAY (Fixed Width and Positioning) */}
+      {/* STICKER TRAY */}
       {showStickers && (
         <div className="absolute bottom-[calc(100%+12px)] left-0 w-[320px] bg-[#1e272e] border border-white/10 rounded-3xl shadow-2xl z-[100] flex flex-col overflow-visible animate-in fade-in slide-in-from-bottom-2 origin-bottom-left">
-          
-          {/* Header */}
           <div className="p-3 bg-black/20 flex items-center justify-between border-b border-white/5 rounded-t-3xl">
             <div className="flex flex-col gap-1">
               <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Sticker Studio</span>
               <div className="flex gap-2">
-                <button onClick={backupStickers} className="text-[9px] text-blue-400 font-bold hover:underline">BACKUP</button>
-                <button onClick={() => restoreInputRef.current.click()} className="text-[9px] text-green-400 font-bold hover:underline">RESTORE</button>
-                <input type="file" ref={restoreInputRef} className="hidden" accept=".json" onChange={(e) => restoreStickers(e.target.files[0])} />
+                <button type="button" onClick={backupStickers} className="text-[9px] text-blue-400 font-bold hover:underline">BACKUP</button>
+                <button type="button" onClick={() => restoreInputRef.current.click()} className="text-[9px] text-green-400 font-bold hover:underline">RESTORE</button>
               </div>
             </div>
-            <button onClick={() => fileInputRef.current.click()} className="bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-xl hover:bg-blue-500 transition-all">
+            <button type="button" onClick={() => fileInputRef.current.click()} className="bg-blue-600 text-white text-[10px] font-black px-3 py-1.5 rounded-xl hover:bg-blue-500 transition-all">
               + CREATE
             </button>
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
           </div>
 
-          {/* Search */}
           <div className="p-2 border-b border-white/5">
             <div className="flex items-center bg-white/5 rounded-xl px-3 py-2 border border-white/5">
               <MagnifyingGlassIcon className="w-4 h-4 text-slate-500 mr-2" />
@@ -171,9 +196,7 @@ export default function MessageInput() {
             </div>
           </div>
 
-          {/* Sticker Content Area */}
           <div className="max-h-64 overflow-y-auto p-4 custom-scrollbar bg-[#1c242b]">
-            {/* Favorites Section */}
             {favorites.length > 0 && searchTerm === "" && (
               <div className="mb-4">
                 <div className="text-[9px] font-bold text-yellow-500 uppercase mb-2 flex items-center gap-1">
@@ -189,30 +212,26 @@ export default function MessageInput() {
               </div>
             )}
 
-            {/* Grid for Stickers */}
             <div className="grid grid-cols-4 gap-3">
-              {/* Custom Stickers */}
               {searchTerm === "" && myStickers.map((url, i) => (
                 <div key={`custom-${i}`} className="group relative aspect-square">
-                  <button onClick={() => sendSticker(url)} className="w-full h-full p-1 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
+                  <button type="button" onClick={() => sendSticker(url)} className="w-full h-full p-1 bg-white/5 rounded-lg hover:bg-white/10 transition-colors">
                     <img src={url} className="w-full h-full object-cover rounded-md" alt="custom" />
                   </button>
                   <button 
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); deleteCustomSticker(i); }} 
                     className="absolute -top-1 -right-1 hidden group-hover:flex w-5 h-5 bg-red-500 rounded-full text-[10px] items-center justify-center text-white shadow-lg"
-                  >
-                    ✕
-                  </button>
+                  >✕</button>
                 </div>
               ))}
-
-              {/* Default Library Stickers */}
               {filteredDefaultStickers.map((s) => (
                 <div key={s.id} className="group relative aspect-square">
-                  <button onClick={() => sendSticker(s.url)} className="w-full h-full hover:scale-110 transition-transform flex items-center justify-center">
+                  <button type="button" onClick={() => sendSticker(s.url)} className="w-full h-full hover:scale-110 transition-transform flex items-center justify-center">
                     <img src={s.url} alt={s.name} className="w-full h-full object-contain" />
                   </button>
                   <button 
+                    type="button"
                     onClick={(e) => { e.stopPropagation(); toggleFavorite(s.url); }}
                     className={`absolute -top-1 -right-1 p-1 transition-opacity ${favorites.includes(s.url) ? 'opacity-100 text-yellow-500' : 'opacity-0 group-hover:opacity-100 text-white/40'}`}
                   >
@@ -222,8 +241,6 @@ export default function MessageInput() {
               ))}
             </div>
           </div>
-
-          {/* Pointer Triangle to Anchor the Tray to the Smile Icon */}
           <div className="absolute bottom-[-6px] left-5 w-3 h-3 bg-[#1c242b] rotate-45 border-r border-b border-white/10"></div>
         </div>
       )}
@@ -240,6 +257,15 @@ export default function MessageInput() {
         
         <button type="button" onClick={startCamera} className="p-2 text-slate-400 hover:text-white transition-colors">
           <CameraIcon className="w-6 h-6" />
+        </button>
+
+        {/* GALLERY BUTTON */}
+        <button 
+          type="button" 
+          onClick={() => galleryInputRef.current.click()} 
+          className="p-2 text-slate-400 hover:text-white transition-colors"
+        >
+          <PhotoIcon className="w-6 h-6" />
         </button>
         
         <input 
