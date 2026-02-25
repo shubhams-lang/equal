@@ -1,69 +1,79 @@
-import React, { useState, useEffect, useContext, useRef } from 'react';
+import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { ChatContext } from '../../context/ChatContext';
 
 // --- GAME OVER OVERLAY ---
 const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username }) => {
   const isMe = winner === username;
   return (
-    <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
-      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-2xl ${isMe ? 'bg-yellow-500 animate-bounce' : 'bg-gray-700'}`}>
-        <span className="text-4xl">{isMe ? "⚡" : "🪫"}</span>
+    <div className="absolute inset-0 z-[110] bg-[#080d14]/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500">
+      <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${isMe ? 'bg-yellow-500 shadow-[0_0_40px_rgba(234,179,8,0.4)]' : 'bg-gray-800'}`}>
+        <span className="text-5xl">{isMe ? "⚡" : "💀"}</span>
       </div>
-      <h2 className={`text-4xl font-black italic tracking-tighter mb-1 ${isMe ? 'text-yellow-400' : 'text-red-500'}`}>
-        {isMe ? "SUPERSONIC!" : "TOO SLOW"}
+      <h2 className={`text-5xl font-black italic mb-2 ${isMe ? 'text-yellow-400' : 'text-red-500'}`}>
+        {isMe ? "GODLIKE" : "SHATTERED"}
       </h2>
-      <p className="text-gray-400 text-[10px] font-black uppercase tracking-[0.2em] mb-6">
-        {isMe ? "Fastest fingers in the room" : `${winner} out-tapped you`}
-      </p>
-      
-      <div className="flex gap-8 mb-8 bg-black/40 px-6 py-3 rounded-2xl border border-white/5">
-        <div>
+      <div className="flex gap-4 mb-8">
+        <div className="text-center bg-white/5 px-6 py-2 rounded-2xl">
           <p className="text-[8px] text-gray-500 font-black">YOU</p>
-          <p className="text-xl font-black text-[#2481cc]">{scores[username] || 0}</p>
+          <p className="text-2xl font-black text-blue-400">{scores[username] || 0}</p>
         </div>
-        <div className="w-px h-8 bg-white/10 self-center" />
-        <div>
-          <p className="text-[8px] text-gray-500 font-black uppercase text-center">{opponent?.split(' ')[1] || 'OPP'}</p>
-          <p className="text-xl font-black text-red-500">{scores[opponent] || 0}</p>
+        <div className="text-center bg-white/5 px-6 py-2 rounded-2xl">
+          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent?.substring(0,6)}</p>
+          <p className="text-2xl font-black text-red-500">{scores[opponent] || 0}</p>
         </div>
       </div>
-
-      <div className="flex flex-col w-full gap-3 max-w-[200px]">
-        <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
-          Rematch
-        </button>
-        <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400">
-          Exit
-        </button>
-      </div>
+      <button onClick={onRematch} className="w-full max-w-[200px] bg-blue-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm mb-3">Rematch</button>
+      <button onClick={onQuit} className="text-gray-500 font-black uppercase tracking-widest text-[10px]">Quit Game</button>
     </div>
   );
 };
 
-// --- MAIN TAP TAP COMPONENT ---
 export default function TapTap() {
   const { socket, roomId, username, opponent, updateScore, scores, sendRematchRequest, closeGame } = useContext(ChatContext);
   
   const [myCount, setMyCount] = useState(0);
   const [oppCount, setOppCount] = useState(0);
   const [winner, setWinner] = useState(null);
-  const [isPressed, setIsPressed] = useState(false);
   
-  // Ref to prevent multiple "Win" emits if player keeps mashing after winning
-  const gameOverSent = useRef(false);
-  const TARGET = 50;
+  // Shield States
+  const [isShieldActive, setIsShieldActive] = useState(false); // Am I shielded?
+  const [isOpponentShielded, setIsOpponentShielded] = useState(false); // Is he shielded?
+  const [shieldAvailable, setShieldAvailable] = useState(false); // Is the button visible?
 
+  const gameOverSent = useRef(false);
+  const TARGET = 60;
+
+  // --- SHIELD SPAWN LOGIC (Random Intervals) ---
   useEffect(() => {
-    const socketListener = (data) => {
+    if (winner) return;
+    const spawnShield = () => {
+      setShieldAvailable(true);
+      // Auto-hide shield if not clicked in 3 seconds
+      setTimeout(() => setShieldAvailable(false), 3000);
+    };
+
+    const timer = setInterval(spawnShield, Math.random() * 5000 + 5000);
+    return () => clearInterval(timer);
+  }, [winner]);
+
+  // --- SOCKET LISTENERS ---
+  useEffect(() => {
+    const handleData = (data) => {
       if (data.type === 'TAP_SYNC') {
-        if (data.user === opponent) {
+        // If I am NOT shielded, his tap counts. If I AM shielded, his tap is ignored.
+        if (!isShieldActive) {
           setOppCount(data.count);
-          // If opponent reached target, set them as winner locally
           if (data.count >= TARGET && !gameOverSent.current) {
             setWinner(opponent);
             gameOverSent.current = true;
           }
         }
+      }
+      if (data.type === 'SHIELD_ON') {
+        if (data.user === opponent) setIsOpponentShielded(true);
+      }
+      if (data.type === 'SHIELD_OFF') {
+        if (data.user === opponent) setIsOpponentShielded(false);
       }
       if (data.type === 'TAP_WIN') {
         setWinner(data.winner);
@@ -71,106 +81,102 @@ export default function TapTap() {
       }
     };
 
-    socket.on('game-data', socketListener);
-    return () => socket.off('game-data', socketListener);
-  }, [socket, opponent]);
+    socket.on('game-data', handleData);
+    return () => socket.off('game-data', handleData);
+  }, [socket, opponent, isShieldActive]);
+
+  const activateShield = () => {
+    setShieldAvailable(false);
+    setIsShieldActive(true);
+    socket.emit('game-data', { roomId, type: 'SHIELD_ON', user: username });
+
+    // Shield lasts 1.5 seconds
+    setTimeout(() => {
+      setIsShieldActive(false);
+      socket.emit('game-data', { roomId, type: 'SHIELD_OFF', user: username });
+    }, 1500);
+  };
 
   const handleTap = (e) => {
-    // Prevent default to stop "Ghost Clicks" (mobile browsers firing both touch and mouse events)
     if (e) e.preventDefault();
-    if (winner || gameOverSent.current) return;
-    
+    if (winner || gameOverSent.current || isOpponentShielded) return;
+
+    if (navigator.vibrate) navigator.vibrate(10);
+
     const newCount = myCount + 1;
     setMyCount(newCount);
     
-    // Visual Feedback
-    setIsPressed(true);
-    setTimeout(() => setIsPressed(false), 75);
+    socket.emit('game-data', { roomId, type: 'TAP_SYNC', user: username, count: newCount });
 
-    // Sync count to opponent
-    socket.emit('game-data', { 
-      roomId, 
-      type: 'TAP_SYNC', 
-      user: username, 
-      count: newCount 
-    });
-
-    // Check Win Condition
     if (newCount >= TARGET && !gameOverSent.current) {
       gameOverSent.current = true;
       setWinner(username);
-      updateScore(username); // Update global scores
+      updateScore(username);
       socket.emit('game-data', { roomId, type: 'TAP_WIN', winner: username });
     }
   };
 
   return (
-    <div className="relative w-full h-full bg-[#0e1621] flex flex-col items-center justify-between p-6 overflow-hidden">
+    <div className="relative w-full h-full bg-[#080d14] flex flex-col items-center overflow-hidden font-sans">
       
-      {/* Progress Bars */}
-      <div className="w-full space-y-4 pt-4">
-        <div className="flex justify-between items-end px-1">
-           <div className="flex flex-col">
-             <span className="text-[8px] font-black text-gray-500 uppercase">Your Energy</span>
-             <span className="text-lg font-black text-[#2481cc]">{myCount}</span>
-           </div>
-           <div className="flex flex-col items-end">
-             <span className="text-[8px] font-black text-gray-500 uppercase">{opponent?.split(' ')[1] || 'Opponent'}</span>
-             <span className="text-lg font-black text-red-500">{oppCount}</span>
-           </div>
+      {/* Progress Section */}
+      <div className="w-full flex h-24 border-b border-white/5 relative">
+        <div className="flex-1 bg-blue-600/20 flex flex-col justify-center px-6 transition-all duration-500" style={{ flexGrow: 1 + (myCount - oppCount) / 10 }}>
+          <span className="text-[8px] font-black text-blue-400 uppercase">You</span>
+          <span className="text-3xl font-black text-white">{myCount}</span>
         </div>
-        
-        <div className="h-3 w-full bg-white/5 rounded-full overflow-hidden flex p-0.5 border border-white/5">
-          <div 
-            className="h-full bg-[#2481cc] rounded-full transition-all duration-100 shadow-[0_0_10px_rgba(36,129,204,0.5)]" 
-            style={{ width: `${Math.min((myCount / TARGET) * 100, 100)}%` }}
-          />
+        <div className="flex-1 bg-red-600/20 flex flex-col justify-center items-end px-6 transition-all duration-500" style={{ flexGrow: 1 + (oppCount - myCount) / 10 }}>
+          <span className="text-[8px] font-black text-red-400 uppercase">{opponent?.substring(0,8)}</span>
+          <span className="text-3xl font-black text-white">{oppCount}</span>
         </div>
       </div>
 
-      {/* Main Tap Button Area */}
-      <div className="flex-1 flex items-center justify-center relative">
-        {/* Decorative Ripple Effect when pressed */}
-        {isPressed && (
-          <div className="absolute w-44 h-44 rounded-full border-4 border-[#2481cc] animate-ping opacity-20" />
-        )}
+      {/* Battle Field */}
+      <div className="flex-1 w-full flex flex-col items-center justify-center relative">
         
+        {/* Shield Icon (Floating) */}
+        {shieldAvailable && !isShieldActive && (
+          <button 
+            onClick={activateShield}
+            className="absolute top-10 z-50 bg-white text-black font-black px-6 py-3 rounded-full shadow-[0_0_30px_white] animate-bounce text-xs"
+          >
+            🛡️ ACTIVATE SHIELD
+          </button>
+        )}
+
+        {/* Status Text */}
+        <div className="absolute top-20 text-[10px] font-black tracking-[0.4em] uppercase">
+          {isOpponentShielded ? <span className="text-red-500 animate-pulse">Opponent Shielded!</span> : 
+           isShieldActive ? <span className="text-blue-400">Shield Active</span> : 
+           <span className="text-gray-600">Mash to Victory</span>}
+        </div>
+
+        {/* Main Button */}
         <button
-          // Use pointer events for best cross-platform performance
           onPointerDown={handleTap}
           className={`
-            w-48 h-48 rounded-full flex flex-col items-center justify-center shadow-2xl
-            transition-all duration-75 select-none touch-none outline-none
-            ${isPressed 
-              ? 'scale-90 bg-[#1e6fb1] shadow-none translate-y-1' 
-              : 'scale-100 bg-[#2481cc] hover:bg-[#2b8de0] shadow-[0_20px_50px_rgba(36,129,204,0.3)]'}
+            relative w-52 h-52 rounded-full flex flex-col items-center justify-center
+            transition-all duration-100 select-none touch-none outline-none z-20
+            ${isShieldActive ? 'bg-white border-[10px] border-blue-400 shadow-[0_0_50px_rgba(255,255,255,0.5)]' : 
+              isOpponentShielded ? 'bg-gray-800 scale-90 opacity-50' : 'bg-blue-600 active:scale-95 shadow-2xl'}
           `}
         >
-          <span className="text-5xl mb-2 drop-shadow-lg">⚡</span>
-          <span className="font-black text-2xl tracking-tighter text-white">TAP!!</span>
-          <div className="mt-2 bg-black/20 px-3 py-1 rounded-full">
-             <p className="text-[9px] font-black text-white/70 uppercase tracking-widest">
-               {Math.max(TARGET - myCount, 0)} TO GO
-             </p>
-          </div>
+          <span className="text-5xl mb-1">{isShieldActive ? "🛡️" : "⚡"}</span>
+          <span className={`font-black text-2xl ${isShieldActive ? 'text-black' : 'text-white'}`}>
+            {isOpponentShielded ? "LOCKED" : "TAP!!"}
+          </span>
         </button>
-      </div>
 
-      {/* Instructions */}
-      <div className="pb-6">
-          <p className="text-[10px] font-black text-gray-600 uppercase tracking-[0.4em] animate-pulse">
-            Mash for victory
-          </p>
+        {/* Visual Shield Bubble */}
+        {isShieldActive && (
+          <div className="absolute w-72 h-72 border-4 border-blue-400/30 rounded-full animate-ping" />
+        )}
       </div>
 
       {winner && (
         <GameOverOverlay 
-          winner={winner}
-          username={username}
-          opponent={opponent}
-          scores={scores}
-          onRematch={sendRematchRequest}
-          onQuit={closeGame}
+          winner={winner} username={username} opponent={opponent} 
+          scores={scores} onRematch={sendRematchRequest} onQuit={closeGame} 
         />
       )}
     </div>
