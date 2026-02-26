@@ -1,13 +1,6 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "redirects": [
-    {
-      "source": "/(.*)",
-      "destination": "https://ekpyrotic.vercel.app/",
-      "statusCode": 301,
-      "permanent": true
-    }
   ]
-}
+
+
