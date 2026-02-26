@@ -4,9 +4,10 @@
   ],
   "redirects": [
     {
-      "source": "/",
+      "source": "/(.*)",
       "destination": "https://ekpyrotic.vercel.app/",
-      "statusCode": 301
+      "statusCode": 301,
+      "permanent": true
     }
   ]
 }
