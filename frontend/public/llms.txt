@@ -1,35 +1,28 @@
-# [Webapp Name] - Ekpyrotic
-> A real-time, mobile-optimized anonymous social networking web app.
+# Ekpyrotic
+> Real-time, mobile-optimized anonymous social networking web app with high-performance gaming modules.
 
-## Architecture
-- **State**: Single source of truth via `ChatContext`. 
-- **Communication**: Event-driven architecture using `socket.emit('game-data', {type, ...payload})`.
-- **UI**: Atomic component structure with Tailwind CSS for styling.
+## 🏗 Architecture & Core Logic
+- **State Management**: Uses `ChatContext` as the single source of truth for global app state.
+- **Networking**: Event-driven architecture powered by Socket.io.
+- **Data Flow**: Optimistic Rendering (Local State Update -> Socket Emit -> Server Broadcast).
 
-## Coding Rules
-1. **Mobile-First Interaction**: 
-   - Use `onPointerDown` instead of `onClick` for game actions to eliminate the 300ms mobile tap delay.
-   - Apply `touch-none` and `select-none` to game containers to prevent accidental scrolling/zooming.
-   - Always include `navigator.vibrate(n)` for primary action feedback.
+## 📜 Development Constraints
+- **Interaction**: Use `onPointerDown` instead of `onClick` for game loops to eliminate mobile tap latency.
+- **Haptics**: Every primary UI action must trigger `navigator.vibrate(n)`.
+- **Viewport**: Game containers must use `touch-none` and `select-none` to prevent accidental browser scaling.
+- **Hooks**: Wrap high-frequency functions in `useCallback`. Use `useRef` for non-rendering state (e.g., `isGameOver`).
+- **Cleanup**: All `useEffect` hooks must unregister `socket.off` and clear intervals to prevent memory leaks.
 
-2. **Synchronization**:
-   - Perform "Optimistic Rendering" (update local state immediately) then broadcast via Socket.io.
-   - Use `useRef` for values that change rapidly but shouldn't trigger a re-render (like `lastX` or `gameOverSent`).
+## 📂 Core Modules & Files
+- [/context](context.md): Global state initialization and socket setup.
+- [/components/games](games.md): High-performance logic for SliderRace, TicTacToe, and TapTap.
+- [/components/ui](ui.md): Atomic design system (Overlays, Badges, high-contrast typography).
 
-3. **Performance**:
-   - Cleanup all `setInterval` and `socket.off` listeners in the `useEffect` return block to prevent memory leaks.
-   - Use `useCallback` for functions passed into `useEffect` dependencies.
+## 📡 Key Socket Protocol
+- `SLIDE_UPDATE`: Real-time position tracking for racing.
+- `TTT_MOVE`: Grid-based turn updates.
+- `REMATCH_OFFER`: Rematch flow logic (Request -> Received -> Accept -> Restart).
 
-4. **UI/UX Consistency**:
-   - Rematch flow must always follow: `Request` -> `Received/Accept` -> `Restart`.
-   - Victory/Defeat overlays must use backdrop-blur and high-contrast typography.
-
-## Directory Structure
-- `/context`: Global state and socket initialization.
-- `/components/games`: Logic-heavy game modules (SliderRace, TicTacToe, TapTap).
-- `/components/ui`: Reusable layout elements (Overlays, Buttons, Badges).
-
-## Key Socket Types
-- `SLIDE_UPDATE`: Real-time position tracking.
-- `TTT_MOVE`: Grid-based state updates.
-- `REMATCH_OFFER`: Signaling intent to play again.
+## 💡 Optional & Maintenance
+- [/docs/changelog](changelog.md): History of architectural shifts.
+- [/tests](tests.md): Unit tests for game logic and socket mocks.
