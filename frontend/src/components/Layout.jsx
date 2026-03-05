@@ -1,79 +1,137 @@
-import React, { useContext } from "react";
-import { ChatContext } from "../context/ChatContext";
-import MessageList from "./MessageList";
-import MessageInput from "./MessageInput";
+import React, { useRef, useEffect, useState } from "react";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 
-// --- GAME IMPORTS ---
-import GameLobby from "./GameLobby";
-import WordScramble from "./Games/WordScramble";
-import TicTacToe from "./Games/TicTacToe";
-import SliderRace from "./Games/SliderRace";
-import Pong from "./Games/Pong";
-import TapTap from "./Games/TapTap";
+export default function ChatLayout({
+  messages,
+  username,
+  users,
+  typingUser,
+  onSend,
+  onGameSelect,
+}) {
+  const messageEndRef = useRef(null);
+  const [text, setText] = useState("");
+  const [membersOpen, setMembersOpen] = useState(true);
 
-export default function Layout() {
-  const { users, typingUser, roomId, activeGame } = useContext(ChatContext);
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  const sendMessage = () => {
+    if (!text.trim()) return;
+    onSend(text);
+    setText("");
+  };
 
   return (
-    <div className="h-screen relative bg-gradient-to-br from-[#0f172a] via-[#0b1220] to-black text-white flex overflow-hidden">
+    <div className="h-screen flex flex-col md:flex-row bg-[#0b141a] text-white font-sans">
       
-      {/* Ambient Glow Effects */}
-      <div className="absolute -top-40 -left-40 w-96 h-96 bg-blue-500/20 blur-[120px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-500/10 blur-[120px] rounded-full pointer-events-none" />
+      {/* MEMBERS PANEL */}
+      <div className={`bg-[#111b21] border-r border-white/5 transition-all duration-300
+        ${membersOpen ? "w-56 p-4" : "w-12 p-0"} flex flex-col overflow-hidden`}
+      >
+        <div className="flex items-center justify-between mb-4">
+          {membersOpen && <h2 className="font-bold text-lg">Members</h2>}
+          <button
+            onClick={() => setMembersOpen(!membersOpen)}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            {membersOpen ? <FiChevronLeft size={20} /> : <FiChevronRight size={20} />}
+          </button>
+        </div>
 
-      {/* 1. LEFT SIDE: GAME AREA (60% width) */}
-      <div className="flex-[1.5] relative flex flex-col border-r border-white/10 z-10 overflow-hidden">
-        {!activeGame ? (
-          <GameLobby />
-        ) : (
-          <div className="flex-1 w-full h-full animate-in fade-in zoom-in-95 duration-500">
-            {activeGame === 'word-scramble' && <WordScramble />}
-            {activeGame === 'tic-tac-toe' && <TicTacToe />}
-            {activeGame === 'slider-race' && <SliderRace />}
-            {activeGame === 'pong' && <Pong />}
-            {activeGame === 'tap-tap' && <TapTap />}
-          </div>
-        )}
+        <div className="flex-1 flex flex-col gap-2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
+          {users.map((u) => {
+            const isMe = u === username;
+            return (
+              <div
+                key={u}
+                className={`flex items-center gap-3 p-2 rounded-lg cursor-default
+                  ${isMe ? "bg-blue-600/30" : "hover:bg-white/5 transition-colors"}`}
+              >
+                <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center font-bold text-sm">
+                  {u[0]}
+                </div>
+                {membersOpen && <span className="truncate">{u}</span>}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* 2. RIGHT SIDE: CHAT AREA (Remaining width) */}
-      <div className="flex-1 flex flex-col relative z-20 backdrop-blur-md bg-black/20">
-        
-        {/* Room Header */}
-        <div className="p-5 border-b border-white/10 flex justify-between items-center">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.3em] text-slate-500 mb-1">Session</div>
-            <div className="font-black text-lg tracking-tighter text-[#2481cc]">
-              {roomId || "OFFLINE"}
-            </div>
+      {/* MAIN CHAT AREA */}
+      <div className="flex-1 flex flex-col">
+        {/* HEADER */}
+        <div className="flex items-center justify-between px-6 py-4 bg-[#111b21] border-b border-white/5">
+          <h1 className="font-bold text-lg">Anonymous Chat Room</h1>
+          <div className="flex gap-3">
+            <button className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm shadow-lg">Invite</button>
           </div>
-          <div className="flex -space-x-2">
-            {users.map((_, i) => (
-              <div key={i} className="w-8 h-8 rounded-full border-2 border-[#0f172a] bg-slate-800 flex items-center justify-center text-[10px] font-bold">
-                {i + 1}
+        </div>
+
+        {/* MESSAGES */}
+        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4 scrollbar-thin scrollbar-thumb-gray-700 scrollbar-track-transparent bg-[#0b141a]">
+          {messages.map((msg, i) => {
+            const isMe = msg.username === username;
+            return (
+              <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
+                <div
+                  className={`max-w-[70%] px-4 py-3 rounded-2xl text-sm shadow-lg
+                    ${isMe
+                      ? "bg-blue-600 text-white rounded-br-md"
+                      : "bg-[#202c33] text-gray-200 rounded-bl-md"}
+                    animate-[fadeIn_.25s_ease]`}
+                >
+                  {!isMe && (
+                    <p className="text-xs text-blue-400 font-semibold mb-1">
+                      {msg.username}
+                    </p>
+                  )}
+                  <p>{msg.message}</p>
+                  <p className="text-[10px] text-gray-400 text-right mt-1">
+                    {msg.timestamp}
+                  </p>
+                </div>
               </div>
-            ))}
+            );
+          })}
+          {typingUser && (
+            <div className="text-xs text-gray-400 italic">{typingUser} typing...</div>
+          )}
+          <div ref={messageEndRef} />
+        </div>
+
+        {/* INPUT BAR */}
+        <div className="px-6 py-4 bg-[#111b21] border-t border-white/5">
+          <div className="flex items-center gap-3 bg-[#202c33] px-4 py-3 rounded-full shadow-inner">
+            <button className="text-gray-400 hover:text-white">😊</button>
+            <button className="text-gray-400 hover:text-white">📷</button>
+            <input
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Type a message..."
+              className="flex-1 bg-transparent outline-none text-sm text-white"
+            />
+            <button
+              onClick={sendMessage}
+              className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-full text-sm shadow-lg"
+            >
+              Send
+            </button>
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 scroll-smooth">
-          <MessageList />
-        </div>
-
-        {/* Typing Indicator */}
-        {typingUser && (
-          <div className="px-6 pb-2">
-            <div className="inline-flex items-center gap-2 bg-white/5 px-4 py-2 rounded-2xl border border-white/10 text-[10px] font-bold text-slate-400">
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-ping" />
-              {typingUser.toUpperCase()} IS TYPING
-            </div>
-          </div>
-        )}
-
-        {/* Message Input */}
-        <div className="p-5 border-t border-white/10 bg-black/40">
-          <MessageInput />
+        {/* GAME PANEL */}
+        <div className="flex gap-3 px-6 py-3 bg-[#0b141a] border-t border-white/5 overflow-x-auto">
+          {["🏓 Pong","❌ Tic Tac Toe","⚡ Tap Tap","🏎 Slider Race","🔤 Word Scramble"].map((game, idx) => (
+            <button
+              key={idx}
+              onClick={() => onGameSelect(game)}
+              className="px-4 py-2 rounded-full bg-white/5 text-xs font-black tracking-widest uppercase text-white/70 hover:bg-blue-600 hover:text-white transition-all transform hover:-translate-y-1 shadow-lg"
+            >
+              {game}
+            </button>
+          ))}
         </div>
       </div>
     </div>
