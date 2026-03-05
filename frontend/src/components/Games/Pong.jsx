@@ -1,38 +1,47 @@
-import React, { useEffect, useRef, useState, useContext } from 'react';
-import { ChatContext } from '../../context/ChatContext';
+import React, { useEffect, useRef, useState, useContext } from "react";
+import { ChatContext } from "../../context/ChatContext";
 
-// --- GAME OVER OVERLAY ---
-const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username }) => {
+/* ==========================
+   GAME OVER OVERLAY
+========================== */
+
+const GameOverOverlay = ({ winner, username, opponent, scores, onRematch, onQuit }) => {
   const isMe = winner === username;
+
   return (
-    <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-300">
-      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-2xl ${isMe ? 'bg-yellow-500' : 'bg-gray-700'}`}>
+    <div className="absolute inset-0 z-[110] bg-[#0e1621]/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+      <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-4 ${isMe ? "bg-yellow-500" : "bg-gray-700"}`}>
         <span className="text-4xl">{isMe ? "🏆" : "💀"}</span>
       </div>
-      <h2 className={`text-3xl font-black italic tracking-tighter mb-1 ${isMe ? 'text-yellow-500' : 'text-red-500'}`}>
-        {isMe ? "VICTORY!" : "DEFEAT..."}
+
+      <h2 className={`text-3xl font-black italic mb-2 ${isMe ? "text-yellow-500" : "text-red-500"}`}>
+        {isMe ? "VICTORY!" : "DEFEAT"}
       </h2>
-      <p className="text-gray-400 text-[10px] font-bold uppercase tracking-[0.2em] mb-6">
-        {isMe ? "You dominated the court" : `${winner} took the win`}
-      </p>
-      
-      <div className="flex gap-8 mb-8 bg-black/40 px-6 py-3 rounded-2xl border border-white/5">
+
+      <div className="flex gap-10 bg-black/40 px-6 py-4 rounded-xl mb-6">
         <div>
-          <p className="text-[8px] text-gray-500 font-black">YOU</p>
-          <p className="text-xl font-black">{scores[username] || 0}</p>
+          <p className="text-xs text-gray-400">YOU</p>
+          <p className="text-xl font-bold">{scores[username] || 0}</p>
         </div>
-        <div className="w-px h-8 bg-white/10 self-center" />
+
         <div>
-          <p className="text-[8px] text-gray-500 font-black uppercase">OPPONENT</p>
-          <p className="text-xl font-black">{scores[opponent] || 0}</p>
+          <p className="text-xs text-gray-400">OPPONENT</p>
+          <p className="text-xl font-bold">{scores[opponent] || 0}</p>
         </div>
       </div>
 
-      <div className="flex flex-col w-full gap-3 max-w-[200px]">
-        <button onClick={onRematch} className="w-full bg-[#2481cc] py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition-transform">
+      <div className="flex flex-col gap-3 w-full max-w-[200px]">
+        <button
+          onClick={onRematch}
+          className="bg-[#2481cc] py-3 rounded-xl font-bold"
+        >
           Rematch
         </button>
-        <button onClick={onQuit} className="w-full bg-white/5 py-4 rounded-2xl font-black text-xs uppercase tracking-widest text-gray-400">
+
+        <button
+          onClick={onQuit}
+          className="bg-white/10 py-3 rounded-xl text-gray-300"
+        >
           Quit
         </button>
       </div>
@@ -40,148 +49,267 @@ const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username
   );
 };
 
-// --- MAIN PONG COMPONENT ---
+/* ==========================
+   MAIN PONG
+========================== */
+
 export default function Pong() {
-  const { socket, roomId, username, opponent, updateScore, scores, sendRematchRequest, closeGame } = useContext(ChatContext);
+  const { socket, roomId, username, opponent, updateScore, scores, sendRematchRequest, closeGame } =
+    useContext(ChatContext);
+
   const canvasRef = useRef(null);
+  const animationRef = useRef(null);
+
   const [winner, setWinner] = useState(null);
-  
-  // Game dimensions and constants
-  const CW = 300; 
-  const CH = 300;
-  const P_HEIGHT = 60;
-  const P_WIDTH = 8;
 
-  // Refs for high-performance physics (no re-renders)
-  const ballRef = useRef({ x: 150, y: 150, dx: 4, dy: 4, size: 6 });
-  const paddlesRef = useRef({ p1Y: 120, p2Y: 120 });
+  const WIDTH = 300;
+  const HEIGHT = 300;
 
-  // Deterministic Host: Player with alphabetically first name handles physics
-  const isHost = username < opponent;
+  const PADDLE_HEIGHT = 60;
+  const PADDLE_WIDTH = 8;
+
+  const ballRef = useRef({
+    x: WIDTH / 2,
+    y: HEIGHT / 2,
+    dx: 3,
+    dy: 3,
+    size: 6,
+  });
+
+  const paddlesRef = useRef({
+    p1Y: HEIGHT / 2 - PADDLE_HEIGHT / 2,
+    p2Y: HEIGHT / 2 - PADDLE_HEIGHT / 2,
+  });
+
+  const isHost = opponent ? username < opponent : false;
+
+  /* ==========================
+     RESET BALL
+  ========================== */
+
+  const resetBall = () => {
+    ballRef.current = {
+      x: WIDTH / 2,
+      y: HEIGHT / 2,
+      dx: Math.random() > 0.5 ? 3 : -3,
+      dy: (Math.random() - 0.5) * 6,
+      size: 6,
+    };
+  };
+
+  /* ==========================
+     INPUT HANDLER
+  ========================== */
+
+  const handleInput = (clientY) => {
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+
+    const scale = HEIGHT / rect.height;
+
+    const y = (clientY - rect.top) * scale - PADDLE_HEIGHT / 2;
+
+    const clamped = Math.max(0, Math.min(HEIGHT - PADDLE_HEIGHT, y));
+
+    socket.emit("game-data", {
+      roomId,
+      type: "PADDLE_MOVE",
+      y: clamped,
+      user: username,
+    });
+  };
+
+  /* ==========================
+     SOCKET LISTENER
+  ========================== */
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    const handleInput = (clientY) => {
-      const rect = canvas.getBoundingClientRect();
-      // Precise scaling from screen pixels to 300x300 canvas space
-      const scaleY = CH / rect.height;
-      const relativeY = (clientY - rect.top) * scaleY - P_HEIGHT / 2;
-      const clampedY = Math.max(0, Math.min(CH - P_HEIGHT, relativeY));
-      
-      socket.emit('game-data', { 
-        roomId, 
-        type: 'PADDLE_MOVE', 
-        y: clampedY, 
-        user: username 
-      });
-    };
-
-    const socketListener = (data) => {
-      if (data.type === 'PADDLE_MOVE') {
+    const listener = (data) => {
+      if (data.type === "PADDLE_MOVE") {
         if (data.user === opponent) {
-          isHost ? (paddlesRef.current.p2Y = data.y) : (paddlesRef.current.p1Y = data.y);
+          isHost
+            ? (paddlesRef.current.p2Y = data.y)
+            : (paddlesRef.current.p1Y = data.y);
         } else {
-          isHost ? (paddlesRef.current.p1Y = data.y) : (paddlesRef.current.p2Y = data.y);
+          isHost
+            ? (paddlesRef.current.p1Y = data.y)
+            : (paddlesRef.current.p2Y = data.y);
         }
       }
-      if (!isHost && data.type === 'SYNC_BALL') {
+
+      if (!isHost && data.type === "SYNC_BALL") {
         ballRef.current = data.ball;
       }
-      if (data.type === 'GAME_OVER') {
+
+      if (data.type === "GAME_OVER") {
         setWinner(data.winner);
       }
     };
 
-    socket.on('game-data', socketListener);
+    socket.on("game-data", listener);
 
-    const gameLoop = setInterval(() => {
-      if (winner) return;
+    return () => socket.off("game-data", listener);
+  }, [socket, opponent, username, isHost]);
 
-      // 1. Logic (Host Only)
-      if (isHost) {
-        let b = ballRef.current;
-        b.x += b.dx;
-        b.y += b.dy;
+  /* ==========================
+     GAME LOOP
+  ========================== */
 
-        // Wall Bounce
-        if (b.y <= 0 || b.y >= CH) b.dy *= -1;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
 
-        // Paddle Collision
-        if (b.x <= 20 && b.y > paddlesRef.current.p1Y && b.y < paddlesRef.current.p1Y + P_HEIGHT) {
-          b.dx = Math.abs(b.dx);
+    const loop = () => {
+      if (!winner) {
+        if (isHost) {
+          const b = ballRef.current;
+
+          b.x += b.dx;
+          b.y += b.dy;
+
+          /* WALL COLLISION */
+
+          if (b.y <= 0 || b.y >= HEIGHT) {
+            b.dy *= -1;
+          }
+
+          /* PADDLE COLLISION */
+
+          const p1 = paddlesRef.current.p1Y;
+          const p2 = paddlesRef.current.p2Y;
+
+          if (
+            b.x <= 20 &&
+            b.y > p1 &&
+            b.y < p1 + PADDLE_HEIGHT
+          ) {
+            b.dx = Math.abs(b.dx) + 0.2;
+          }
+
+          if (
+            b.x >= WIDTH - 20 &&
+            b.y > p2 &&
+            b.y < p2 + PADDLE_HEIGHT
+          ) {
+            b.dx = -Math.abs(b.dx) - 0.2;
+          }
+
+          /* SCORE */
+
+          if (b.x < 0) {
+            socket.emit("game-data", {
+              roomId,
+              type: "GAME_OVER",
+              winner: opponent,
+            });
+
+            updateScore(opponent);
+            resetBall();
+          }
+
+          if (b.x > WIDTH) {
+            socket.emit("game-data", {
+              roomId,
+              type: "GAME_OVER",
+              winner: username,
+            });
+
+            updateScore(username);
+            resetBall();
+          }
+
+          socket.emit("game-data", {
+            roomId,
+            type: "SYNC_BALL",
+            ball: b,
+          });
         }
-        if (b.x >= CW - 20 && b.y > paddlesRef.current.p2Y && b.y < paddlesRef.current.p2Y + P_HEIGHT) {
-          b.dx = -Math.abs(b.dx);
-        }
-
-        // Scoring
-        if (b.x < 0) {
-          socket.emit('game-data', { roomId, type: 'GAME_OVER', winner: opponent });
-          updateScore(opponent);
-        } else if (b.x > CW) {
-          socket.emit('game-data', { roomId, type: 'GAME_OVER', winner: username });
-          updateScore(username);
-        }
-        
-        // Broadcast ball position to Guest
-        socket.emit('game-data', { roomId, type: 'SYNC_BALL', ball: b });
       }
 
-      // 2. Rendering
-      ctx.fillStyle = '#0b141a';
-      ctx.fillRect(0, 0, CW, CH);
-      
-      // Net
+      /* ======================
+         RENDER
+      ====================== */
+
+      ctx.fillStyle = "#0b141a";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+      /* NET */
+
       ctx.setLineDash([5, 5]);
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-      ctx.beginPath(); ctx.moveTo(CW/2, 0); ctx.lineTo(CW/2, CH); ctx.stroke();
-
-      // Left Paddle (Host)
-      ctx.fillStyle = isHost ? '#2481cc' : '#333'; 
-      ctx.fillRect(10, paddlesRef.current.p1Y, P_WIDTH, P_HEIGHT);
-      
-      // Right Paddle (Guest)
-      ctx.fillStyle = !isHost ? '#2481cc' : '#333';
-      ctx.fillRect(CW - P_WIDTH - 10, paddlesRef.current.p2Y, P_WIDTH, P_HEIGHT);
-
-      // Ball
-      ctx.fillStyle = '#fff';
+      ctx.strokeStyle = "rgba(255,255,255,0.1)";
       ctx.beginPath();
-      ctx.arc(ballRef.current.x, ballRef.current.y, ballRef.current.size, 0, Math.PI * 2);
-      ctx.fill();
-    }, 1000 / 60);
+      ctx.moveTo(WIDTH / 2, 0);
+      ctx.lineTo(WIDTH / 2, HEIGHT);
+      ctx.stroke();
 
-    const onMouseMove = (e) => handleInput(e.clientY);
-    const onTouchMove = (e) => {
+      /* PADDLES */
+
+      ctx.fillStyle = "#2481cc";
+      ctx.fillRect(10, paddlesRef.current.p1Y, PADDLE_WIDTH, PADDLE_HEIGHT);
+
+      ctx.fillRect(
+        WIDTH - PADDLE_WIDTH - 10,
+        paddlesRef.current.p2Y,
+        PADDLE_WIDTH,
+        PADDLE_HEIGHT
+      );
+
+      /* BALL */
+
+      ctx.beginPath();
+      ctx.arc(
+        ballRef.current.x,
+        ballRef.current.y,
+        ballRef.current.size,
+        0,
+        Math.PI * 2
+      );
+
+      ctx.fillStyle = "#fff";
+      ctx.fill();
+
+      animationRef.current = requestAnimationFrame(loop);
+    };
+
+    animationRef.current = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [winner, isHost, opponent, username, updateScore, socket, roomId]);
+
+  /* ==========================
+     INPUT EVENTS
+  ========================== */
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+
+    const mouse = (e) => handleInput(e.clientY);
+
+    const touch = (e) => {
       if (e.cancelable) e.preventDefault();
       handleInput(e.touches[0].clientY);
     };
 
-    canvas.addEventListener('mousemove', onMouseMove);
-    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener("mousemove", mouse);
+    canvas.addEventListener("touchmove", touch, { passive: false });
 
     return () => {
-      clearInterval(gameLoop);
-      socket.off('game-data', socketListener);
-      canvas.removeEventListener('mousemove', onMouseMove);
-      canvas.removeEventListener('touchmove', onTouchMove);
+      canvas.removeEventListener("mousemove", mouse);
+      canvas.removeEventListener("touchmove", touch);
     };
-  }, [socket, roomId, winner, opponent, isHost, username, updateScore]);
+  }, []);
 
   return (
     <div className="relative w-full aspect-square max-w-[350px] bg-[#111b21] rounded-3xl overflow-hidden border-4 border-[#202c33] shadow-2xl">
-      <canvas 
-        ref={canvasRef} 
-        width={300} 
-        height={300} 
+      <canvas
+        ref={canvasRef}
+        width={300}
+        height={300}
         className="w-full h-full cursor-none touch-none"
       />
-      
+
       {winner && (
-        <GameOverOverlay 
+        <GameOverOverlay
           winner={winner}
           username={username}
           opponent={opponent}

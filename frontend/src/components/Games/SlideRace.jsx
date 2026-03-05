@@ -1,207 +1,359 @@
-import React, { useState, useEffect, useContext, useRef, useCallback } from 'react';
-import { ChatContext } from '../../context/ChatContext';
+import React, {
+  useState,
+  useEffect,
+  useContext,
+  useRef,
+  useCallback
+} from "react";
+import { ChatContext } from "../../context/ChatContext";
 
-// --- UPDATED GAME OVER OVERLAY ---
-const GameOverOverlay = ({ winner, onRematch, onQuit, scores, opponent, username, rematchStatus }) => {
+/* ---------------- GAME OVER OVERLAY ---------------- */
+
+const GameOverOverlay = ({
+  winner,
+  username,
+  opponent,
+  scores,
+  rematchStatus,
+  onRematch,
+  onQuit
+}) => {
   const isMe = winner === username;
-  const hasRequested = rematchStatus === 'sent';
-  const hasReceived = rematchStatus === 'received';
+  const sent = rematchStatus === "sent";
+  const received = rematchStatus === "received";
 
   return (
-    <div className="absolute inset-0 z-[110] bg-[#080d14]/98 backdrop-blur-2xl flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500">
-      <div className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${isMe ? 'bg-yellow-500 shadow-[0_0_50px_rgba(234,179,8,0.4)]' : 'bg-gray-800'}`}>
-        <span className="text-5xl animate-bounce">{isMe ? "🏆" : "🏳️"}</span>
+    <div className="absolute inset-0 z-[200] bg-[#05080c]/95 backdrop-blur-xl flex flex-col items-center justify-center text-center p-6 animate-in fade-in zoom-in-95 duration-500">
+
+      <div
+        className={`w-24 h-24 rounded-full flex items-center justify-center mb-6 ${
+          isMe
+            ? "bg-yellow-400 shadow-[0_0_60px_rgba(250,204,21,0.5)]"
+            : "bg-red-500/20"
+        }`}
+      >
+        <span className="text-5xl">{isMe ? "🏆" : "💀"}</span>
       </div>
-      
-      <h2 className={`text-5xl font-black italic mb-2 ${isMe ? 'text-yellow-400' : 'text-red-500'}`}>
-        {isMe ? "1ST PLACE" : "WRECKED"}
+
+      <h2
+        className={`text-4xl font-black mb-3 ${
+          isMe ? "text-yellow-400" : "text-red-500"
+        }`}
+      >
+        {isMe ? "VICTORY" : "DEFEAT"}
       </h2>
 
-      <div className="flex gap-4 mb-8 bg-white/5 p-4 rounded-3xl border border-white/5">
-        <div className="text-center px-4">
-          <p className="text-[8px] text-gray-500 font-black">YOU</p>
-          <p className="text-2xl font-black text-blue-400">{scores[username] || 0}</p>
+      <div className="flex gap-8 mb-8 bg-white/5 px-6 py-4 rounded-3xl border border-white/10">
+        <div>
+          <p className="text-[10px] text-gray-400 font-black">YOU</p>
+          <p className="text-2xl font-black text-blue-400">
+            {scores[username] || 0}
+          </p>
         </div>
-        <div className="w-px h-10 bg-white/10" />
-        <div className="text-center px-4">
-          <p className="text-[8px] text-gray-500 font-black uppercase">{opponent?.substring(0,6)}</p>
-          <p className="text-2xl font-black text-red-500">{scores[opponent] || 0}</p>
+
+        <div className="w-px bg-white/10" />
+
+        <div>
+          <p className="text-[10px] text-gray-400 font-black uppercase">
+            {opponent?.slice(0, 6)}
+          </p>
+          <p className="text-2xl font-black text-red-400">
+            {scores[opponent] || 0}
+          </p>
         </div>
       </div>
 
-      <div className="flex flex-col w-full gap-3 max-w-[220px]">
-        <button 
-          onClick={onRematch} 
-          disabled={hasRequested}
-          className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl active:scale-95
-            ${hasReceived ? 'bg-green-500 animate-pulse text-black' : 
-              hasRequested ? 'bg-gray-700 text-gray-400 cursor-default' : 'bg-[#2481cc] text-white shadow-blue-500/20'}
-          `}
+      <div className="flex flex-col gap-3 w-full max-w-[220px]">
+
+        <button
+          disabled={sent}
+          onClick={onRematch}
+          className={`py-4 rounded-2xl font-black uppercase tracking-widest transition-all
+          ${
+            received
+              ? "bg-green-500 animate-pulse text-black"
+              : sent
+              ? "bg-gray-700 text-gray-400 cursor-default"
+              : "bg-[#2481cc] text-white shadow-lg shadow-blue-500/20"
+          }`}
         >
-          {hasReceived ? 'Accept Rematch' : hasRequested ? 'Waiting for Opponent...' : 'Rematch'}
+          {received
+            ? "Accept Rematch"
+            : sent
+            ? "Waiting..."
+            : "Rematch"}
         </button>
 
-        <button onClick={onQuit} className="mt-2 text-gray-500 font-black uppercase tracking-widest text-[10px] hover:text-white transition-colors">
-          Quit to Lobby
+        <button
+          onClick={onQuit}
+          className="text-gray-500 text-xs font-black uppercase hover:text-white"
+        >
+          Quit
         </button>
       </div>
     </div>
   );
 };
 
+/* ---------------- MAIN GAME ---------------- */
+
 export default function SliderRace() {
-  const { socket, roomId, username, opponent, updateScore, scores, closeGame } = useContext(ChatContext);
-  
-  // Game States
+  const {
+    socket,
+    roomId,
+    username,
+    opponent,
+    scores,
+    updateScore,
+    closeGame
+  } = useContext(ChatContext);
+
+  /* ----------- GAME STATE ----------- */
+
   const [progress, setProgress] = useState(0);
   const [oppProgress, setOppProgress] = useState(0);
   const [velocity, setVelocity] = useState(0);
   const [heat, setHeat] = useState(0);
+  const [turbo, setTurbo] = useState(false);
   const [winner, setWinner] = useState(null);
-  const [turboActive, setTurboActive] = useState(false);
-  const [turboAvailable, setTurboAvailable] = useState(false);
-  const [rematchStatus, setRematchStatus] = useState(null); // 'sent', 'received', null
+  const [rematchStatus, setRematchStatus] = useState(null);
 
   const gameEnded = useRef(false);
   const lastX = useRef(0);
-  const turboUsedAt = useRef([]);
+  const animationRef = useRef(null);
 
-  // Reset function to clear all states for a new race
+  /* ----------- RESET GAME ----------- */
+
   const resetRace = useCallback(() => {
     setProgress(0);
     setOppProgress(0);
     setVelocity(0);
     setHeat(0);
+    setTurbo(false);
     setWinner(null);
-    setTurboActive(false);
-    setTurboAvailable(false);
     setRematchStatus(null);
+
     gameEnded.current = false;
     lastX.current = 0;
-    turboUsedAt.current = [];
   }, []);
 
-  // Socket Listener
+  /* ----------- SOCKET LISTENER ----------- */
+
   useEffect(() => {
     const handleData = (data) => {
       switch (data.type) {
-        case 'SLIDE_UPDATE':
+        case "SLIDE_UPDATE":
           if (data.user === opponent) {
             setOppProgress(data.val);
+
             if (data.val >= 100 && !gameEnded.current) {
-              setWinner(opponent);
               gameEnded.current = true;
+              setWinner(opponent);
             }
           }
           break;
-        case 'RACE_OVER':
+
+        case "RACE_OVER":
           setWinner(data.winner);
           gameEnded.current = true;
           break;
-        case 'REMATCH_REQUEST':
-          if (data.from === opponent) setRematchStatus('received');
+
+        case "REMATCH_REQUEST":
+          if (data.from === opponent) setRematchStatus("received");
           break;
-        case 'RACE_RESTART':
+
+        case "RACE_RESTART":
           resetRace();
           break;
-        default: break;
+
+        default:
+          break;
       }
     };
-    socket.on('game-data', handleData);
-    return () => socket.off('game-data', handleData);
+
+    socket.on("game-data", handleData);
+    return () => socket.off("game-data", handleData);
   }, [socket, opponent, resetRace]);
 
-  // Physics Loop
+  /* ----------- GAME LOOP ----------- */
+
   useEffect(() => {
     if (winner) return;
-    const loop = setInterval(() => {
-      setProgress(prev => {
-        const next = prev + (turboActive ? velocity * 2.5 : velocity);
+
+    const loop = () => {
+      setProgress((prev) => {
+        const speed = turbo ? velocity * 2.5 : velocity;
+        const next = prev + speed;
+
         if (next >= 100 && !gameEnded.current) {
           gameEnded.current = true;
+
           setWinner(username);
           updateScore(username);
-          socket.emit('game-data', { roomId, type: 'RACE_OVER', winner: username });
+
+          socket.emit("game-data", {
+            roomId,
+            type: "RACE_OVER",
+            winner: username
+          });
+
           return 100;
         }
+
         return Math.min(next, 100);
       });
 
-      setVelocity(v => Math.max(0, v * 0.94));
-      setHeat(h => Math.max(0, h - 0.8));
-      
-      if (velocity > 0.05) {
-        socket.emit('game-data', { roomId, type: 'SLIDE_UPDATE', user: username, val: progress });
-      }
-    }, 50);
+      setVelocity((v) => Math.max(0, v * 0.94));
+      setHeat((h) => Math.max(0, h - 0.6));
 
-    return () => clearInterval(loop);
-  }, [velocity, winner, progress, turboActive, username, roomId, socket, updateScore]);
+      animationRef.current = requestAnimationFrame(loop);
+    };
 
-  const handleInput = (e) => {
+    animationRef.current = requestAnimationFrame(loop);
+
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [velocity, turbo, winner, username, socket, roomId, updateScore]);
+
+  /* ----------- INPUT HANDLER ----------- */
+
+  const handleSlide = (e) => {
     if (winner || heat > 95) return;
-    const currentX = parseInt(e.target.value);
-    const delta = Math.abs(currentX - lastX.current);
+
+    const x = Number(e.target.value);
+    const delta = Math.abs(x - lastX.current);
+
     if (delta > 0) {
-      setVelocity(v => Math.min(2.5, v + delta * 0.015));
-      setHeat(h => Math.min(100, h + delta * 0.25));
+      setVelocity((v) => Math.min(2.5, v + delta * 0.02));
+      setHeat((h) => Math.min(100, h + delta * 0.25));
+
+      socket.emit("game-data", {
+        roomId,
+        type: "SLIDE_UPDATE",
+        user: username,
+        val: progress
+      });
     }
-    lastX.current = currentX;
+
+    lastX.current = x;
   };
 
-  const handleRematchClick = () => {
-    if (rematchStatus === 'received') {
-      // Both are ready, trigger restart
-      socket.emit('game-data', { roomId, type: 'RACE_RESTART' });
+  /* ----------- TURBO ----------- */
+
+  const activateTurbo = () => {
+    if (turbo) return;
+
+    setTurbo(true);
+    setVelocity(3.5);
+
+    setTimeout(() => setTurbo(false), 1500);
+  };
+
+  /* ----------- REMATCH ----------- */
+
+  const handleRematch = () => {
+    if (rematchStatus === "received") {
+      socket.emit("game-data", {
+        roomId,
+        type: "RACE_RESTART"
+      });
+
       resetRace();
     } else {
-      // Send request to opponent
-      setRematchStatus('sent');
-      socket.emit('game-data', { roomId, type: 'REMATCH_REQUEST', from: username });
+      setRematchStatus("sent");
+
+      socket.emit("game-data", {
+        roomId,
+        type: "REMATCH_REQUEST",
+        from: username
+      });
     }
   };
 
+  /* ----------- UI ----------- */
+
   return (
-    <div className={`relative w-full h-full bg-[#080d14] flex flex-col justify-center items-center overflow-hidden transition-all duration-75`}>
-      {/* ... (Keep the Race HUD and Track UI from previous code) ... */}
-      
-      {/* Turbo Button Logic */}
-      {progress >= 30 && progress <= 35 && !turboUsedAt.current.includes(30) && !turboActive && (
-         <button onClick={() => { setTurboActive(true); setVelocity(3.5); turboUsedAt.current.push(30); setTimeout(() => setTurboActive(false), 1500); }} 
-         className="absolute top-24 z-50 bg-yellow-400 text-black px-8 py-2 rounded-full font-black animate-bounce shadow-lg">BOOST!</button>
+    <div className="relative w-full h-full flex flex-col items-center justify-center bg-[#080d14] overflow-hidden">
+
+      {/* TURBO BUTTON */}
+
+      {progress > 30 && progress < 40 && !turbo && !winner && (
+        <button
+          onClick={activateTurbo}
+          className="absolute top-24 bg-yellow-400 text-black px-8 py-2 rounded-full font-black animate-bounce shadow-lg"
+        >
+          BOOST
+        </button>
       )}
 
-      {/* Track UI */}
-      <div className="w-full max-w-[320px] space-y-20 relative z-10">
-        {/* Opponent Lane */}
+      {/* TRACK */}
+
+      <div className="w-full max-w-[320px] space-y-20 z-10">
+
+        {/* OPPONENT */}
+
         <div className="relative pt-4 opacity-40">
+
           <div className="h-1 w-full bg-white/5 rounded-full" />
-          <span className="absolute -top-3 transition-all duration-500 text-xl" style={{ left: `calc(${oppProgress}% - 12px)` }}>🏎️</span>
+
+          <span
+            className="absolute -top-3 text-xl transition-all duration-300"
+            style={{ left: `calc(${oppProgress}% - 12px)` }}
+          >
+            🏎️
+          </span>
+
         </div>
 
-        {/* Player Lane */}
+        {/* PLAYER */}
+
         <div className="relative">
-          <div className="relative h-24 flex items-center bg-black/40 rounded-[2rem] px-6 border border-white/5">
+
+          <div className="h-24 bg-black/40 rounded-[2rem] px-6 flex items-center border border-white/5">
+
             <div className="relative w-full h-3 bg-white/5 rounded-full">
-              <div className={`absolute left-0 h-full rounded-full ${turboActive ? 'bg-yellow-400' : 'bg-[#2481cc]'}`} style={{ width: `${progress}%` }} />
-              <div className="absolute top-1/2 -translate-y-1/2" style={{ left: `calc(${progress}% - 24px)` }}>
+
+              <div
+                className={`absolute left-0 h-full rounded-full ${
+                  turbo ? "bg-yellow-400" : "bg-[#2481cc]"
+                }`}
+                style={{ width: `${progress}%` }}
+              />
+
+              <div
+                className="absolute top-1/2 -translate-y-1/2"
+                style={{ left: `calc(${progress}% - 20px)` }}
+              >
                 <span className="text-4xl">🏎️</span>
               </div>
+
             </div>
-            <input type="range" min="0" max="100" defaultValue="0" onChange={handleInput} className="absolute inset-x-6 h-full opacity-0 cursor-pointer z-20 touch-none" />
+
+            <input
+              type="range"
+              min="0"
+              max="100"
+              defaultValue="0"
+              onChange={handleSlide}
+              className="absolute inset-x-6 h-full opacity-0 cursor-pointer touch-none"
+            />
+
           </div>
+
         </div>
+
       </div>
 
+      {/* GAME OVER */}
+
       {winner && (
-        <GameOverOverlay 
-          winner={winner} 
-          username={username} 
-          opponent={opponent} 
-          scores={scores} 
+        <GameOverOverlay
+          winner={winner}
+          username={username}
+          opponent={opponent}
+          scores={scores}
           rematchStatus={rematchStatus}
-          onRematch={handleRematchClick} 
-          onQuit={closeGame} 
+          onRematch={handleRematch}
+          onQuit={closeGame}
         />
       )}
     </div>
