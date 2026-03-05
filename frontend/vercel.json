@@ -1,7 +1,18 @@
 {
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "anonymous-chat-kohl-iota.vercel.app"
+        }
+      ],
+      "destination": "https://ekpyrotic.vercel.app/$1",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
-
-
