@@ -40,18 +40,14 @@
   <meta name="twitter:image" content="https://ekpyrotic.vercel.app/preview.png" />
 
   <!-- Security Policy -->
-  <meta http-equiv="Content-Security-Policy"
-    content="
-      default-src 'self';
-      img-src 'self' data: blob: https:;
-      media-src 'self' data: blob:;
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com;
-      style-src 'self' 'unsafe-inline';
-      connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com;
-      frame-ancestors 'none';
-      base-uri 'self';
-      form-action 'self';
-    ">
+<meta http-equiv="Content-Security-Policy" 
+      content="default-src 'self'; 
+               img-src 'self' data: blob: https:; 
+               media-src 'self' data: blob:; 
+               script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com; 
+               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
+               font-src 'self' https://fonts.gstatic.com;
+               connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com;">
 
   <!-- Preconnect (Performance) -->
   <link rel="preconnect" href="https://www.googletagmanager.com">
