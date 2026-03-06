@@ -1,137 +1,178 @@
-import React, { useRef, useEffect, useState } from "react";
-import { FiChevronLeft, FiChevronRight, FiUsers } from "react-icons/fi";
+import React, { useRef, useEffect, useState, useContext } from "react";
+import { 
+  FiSend, 
+  FiPlus, 
+  FiSmile, 
+  FiChevronDown, 
+  FiGamepad, 
+  FiX, 
+  FiCheck 
+} from "react-icons/fi";
+import { ChatContext } from "../context/ChatContext";
+import Message from "./Message";
 
-export default function ChatLayout({
-  messages,
-  username,
-  users,
-  typingUser,
-  onSend,
-  onGameSelect,
-}) {
+export default function Chat({ onReact }) {
+  const { 
+    messages, 
+    sendMessage, 
+    typingUser, 
+    activeGameRequest, // From Context: { gameId, sender }
+    acceptGameRequest, 
+    declineGameRequest 
+  } = useContext(ChatContext);
+
   const messageEndRef = useRef(null);
+  const scrollContainerRef = useRef(null);
+  
   const [text, setText] = useState("");
-  const [membersOpen, setMembersOpen] = useState(true);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
+
+  // --- SCROLL LOGIC ---
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    // Show button if user is > 300px from bottom
+    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 300);
+  };
+
+  const scrollToBottom = () => {
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!showScrollBtn) {
+      scrollToBottom();
+    }
+  }, [messages, typingUser]);
 
-  const sendMessage = () => {
+  // --- HANDLERS ---
+  const handleSend = () => {
     if (!text.trim()) return;
-    onSend(text);
+    sendMessage(text);
     setText("");
+    // Forced scroll on manual send
+    setTimeout(scrollToBottom, 50);
   };
 
   return (
-    <div className="h-screen flex flex-col md:flex-row bg-[#0b141a] text-white font-sans overflow-hidden">
+    <div className="flex flex-col h-full bg-[#0b141a] relative overflow-hidden">
       
-      {/* MEMBERS PANEL */}
-      <aside 
-        className={`bg-[#111b21] border-r border-white/5 transition-all duration-300 ease-in-out flex flex-col
-          ${membersOpen ? "w-64" : "w-16"}`}
-      >
-        {/* Header with Toggle */}
-        <div className="flex items-center justify-between p-4 min-h-[70px] border-b border-white/5">
-          {membersOpen && <h2 className="font-bold text-lg animate-fadeIn">Members</h2>}
-          <button
-            onClick={() => setMembersOpen(!membersOpen)}
-            className={`text-gray-400 hover:text-white transition-all p-2 rounded-lg hover:bg-white/5 
-              ${!membersOpen ? "mx-auto" : ""}`}
-            title={membersOpen ? "Collapse" : "Expand"}
-          >
-            {membersOpen ? <FiChevronLeft size={22} /> : <FiUsers size={22} />}
-          </button>
-        </div>
-
-        {/* User List */}
-        <div className="flex-1 flex flex-col gap-2 p-2 overflow-y-auto overflow-x-hidden scrollbar-hide">
-          {users.map((u) => {
-            const isMe = u === username;
-            return (
-              <div
-                key={u}
-                className={`flex items-center gap-3 p-2 rounded-xl cursor-default group transition-all
-                  ${isMe ? "bg-blue-600/20 border border-blue-600/30" : "hover:bg-white/5"}`}
+      {/* --- GAME REQUEST OVERLAY --- */}
+      {activeGameRequest && (
+        <div className="absolute top-4 left-4 right-4 z-[60] animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="bg-[#1c2733]/90 backdrop-blur-2xl border border-blue-500/30 p-4 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400 border border-blue-500/20">
+                <FiGamepad size={24} className="animate-pulse" />
+              </div>
+              <div>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-blue-400">Incoming Challenge</h4>
+                <p className="text-sm font-bold text-white">
+                  {activeGameRequest.sender} wants to play <span className="text-blue-400">{activeGameRequest.gameId}</span>
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button 
+                onClick={declineGameRequest}
+                className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl transition-all border border-red-500/20"
               >
-                {/* Avatar / Status Dot */}
-                <div className="relative shrink-0">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-bold text-sm shadow-inner">
-                    {u[0].toUpperCase()}
-                  </div>
-                  <div className="absolute bottom-0 right-0 w-3 h-3 bg-green-500 border-2 border-[#111b21] rounded-full animate-pulse"></div>
-                </div>
-
-                {/* Name - Hidden when collapsed */}
-                {membersOpen && (
-                  <span className="truncate text-sm font-medium animate-fadeIn">
-                    {u} {isMe && <span className="text-xs text-blue-400 opacity-70 ml-1">(You)</span>}
-                  </span>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </aside>
-
-      {/* MAIN CHAT AREA */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* HEADER */}
-        <div className="flex items-center justify-between px-6 py-4 bg-[#111b21]/50 backdrop-blur-md border-b border-white/5">
-          <div>
-            <h1 className="font-bold text-lg">Secure Channel</h1>
-            <p className="text-[10px] text-gray-500 uppercase tracking-widest">End-to-End Encrypted</p>
+                <FiX size={20} />
+              </button>
+              <button 
+                onClick={acceptGameRequest}
+                className="px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black text-[10px] tracking-widest uppercase transition-all shadow-lg shadow-blue-600/20 flex items-center gap-2"
+              >
+                <FiCheck size={16} /> Accept
+              </button>
+            </div>
           </div>
-          <button className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm font-semibold transition-all hover:shadow-[0_0_15px_rgba(37,99,235,0.4)]">
-            Invite
+        </div>
+      )}
+
+      {/* --- MESSAGES LIST --- */}
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-2 custom-scrollbar"
+      >
+        {messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center opacity-20 text-center p-10">
+            <div className="w-20 h-20 border-2 border-dashed border-white/20 rounded-full flex items-center justify-center mb-4 text-white">
+              <FiSend size={30} />
+            </div>
+            <p className="uppercase tracking-[0.4em] text-[9px] font-black text-white">Secure Link Established</p>
+          </div>
+        ) : (
+          messages.map((msg, i) => (
+            <Message 
+              key={msg.id || i} 
+              msg={msg} 
+              onReact={onReact} 
+            />
+          ))
+        )}
+        
+        {/* Typing Indicator */}
+        {typingUser && (
+          <div className="flex items-center gap-2 text-[10px] text-blue-400/60 font-bold uppercase tracking-widest animate-pulse ml-2 mb-8">
+             <span className="flex gap-0.5">
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></span>
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
+              <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+            </span>
+            {typingUser} typing...
+          </div>
+        )}
+        <div ref={messageEndRef} />
+      </div>
+
+      {/* --- FLOATING SCROLL BUTTON --- */}
+      {showScrollBtn && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-24 right-6 md:right-10 p-3 bg-blue-600 text-white rounded-full shadow-2xl hover:bg-blue-500 hover:scale-110 transition-all animate-in fade-in zoom-in z-50 border border-white/10 group"
+        >
+          <div className="relative">
+            <FiChevronDown size={22} className="group-hover:translate-y-0.5 transition-transform" />
+            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-blue-600 animate-pulse"></span>
+          </div>
+        </button>
+      )}
+
+      {/* --- INPUT FOOTER --- */}
+      <footer className="p-4 bg-gradient-to-t from-[#0b141a] via-[#0b141a]/90 to-transparent pt-10">
+        <div className="max-w-4xl mx-auto flex items-center gap-2 bg-[#202c33]/80 backdrop-blur-md border border-white/5 p-2 rounded-[22px] shadow-2xl focus-within:border-blue-500/50 transition-all">
+          
+          <button className="p-3 text-slate-400 hover:text-blue-400 transition-colors hidden sm:block">
+            <FiPlus size={20} />
+          </button>
+          
+          <input
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSend()}
+            placeholder="Type a message..."
+            className="flex-1 bg-transparent outline-none text-[15px] px-2 text-slate-100 placeholder:text-slate-500 font-medium"
+          />
+
+          <button className="p-3 text-slate-400 hover:text-yellow-500 transition-colors">
+            <FiSmile size={20} />
+          </button>
+
+          <button
+            onClick={handleSend}
+            disabled={!text.trim()}
+            className={`p-3.5 rounded-[18px] transition-all duration-500 ${
+              text.trim() 
+                ? "bg-blue-600 text-white shadow-[0_0_20px_rgba(37,99,235,0.4)] scale-100 rotate-0" 
+                : "bg-slate-700/50 text-slate-500 scale-90 -rotate-12 opacity-50"
+            }`}
+          >
+            <FiSend size={18} className={text.trim() ? "translate-x-0.5" : ""} />
           </button>
         </div>
-
-        {/* MESSAGES - Focus on Spacing */}
-        <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-[#0b141a]">
-          {messages.map((msg, i) => {
-            const isMe = msg.username === username;
-            return (
-              <div key={i} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm transition-all
-                    ${isMe
-                      ? "bg-blue-600 text-white rounded-tr-none shadow-lg shadow-blue-900/20"
-                      : "bg-[#202c33] text-gray-200 rounded-tl-none border border-white/5"}`}
-                >
-                  {!isMe && <p className="text-[10px] text-blue-400 font-bold mb-1 uppercase tracking-tighter">{msg.username}</p>}
-                  <p className="leading-relaxed">{msg.message}</p>
-                  <p className="text-[9px] opacity-50 text-right mt-1">{msg.timestamp}</p>
-                </div>
-              </div>
-            );
-          })}
-          <div ref={messageEndRef} />
-        </div>
-
-        {/* INPUT BAR - Glassmorphism style */}
-        <footer className="p-4 bg-[#111b21]/80 backdrop-blur-xl border-t border-white/5">
-          {typingUser && (
-             <div className="text-[10px] text-blue-400 animate-pulse mb-2 ml-4 italic">{typingUser} is typing...</div>
-          )}
-          <div className="flex items-center gap-3 bg-[#202c33] border border-white/5 px-4 py-2 rounded-2xl focus-within:border-blue-500/50 transition-all shadow-2xl">
-            <button className="opacity-60 hover:opacity-100 transition-opacity">😊</button>
-            <input
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
-              placeholder="Start the transmission..."
-              className="flex-1 bg-transparent outline-none text-sm py-2"
-            />
-            <button
-              onClick={sendMessage}
-              className="bg-blue-600 hover:bg-blue-500 p-2 rounded-xl transition-all active:scale-95"
-            >
-              <FiChevronRight size={20} />
-            </button>
-          </div>
-        </footer>
-      </div>
+      </footer>
     </div>
   );
 }
