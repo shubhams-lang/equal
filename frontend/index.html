@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+
   <!-- Basic Meta -->
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 
   <!-- SEO -->
   <title>Anonymous Chat | Secure & Private Messaging</title>
-  <meta name="description" content="Join a secure anonymous chat room and connect with people instantly. No registration required. Private and encrypted conversations." />
+  <meta name="description" content="Join a secure anonymous chat room and connect instantly. No registration required. Private and encrypted conversations." />
   <meta name="keywords" content="anonymous chat, private chat, random chat, secure messaging, anonymous messaging" />
   <meta name="author" content="Ekpyrotic" />
   <link rel="canonical" href="https://ekpyrotic.vercel.app/" />
@@ -15,17 +17,24 @@
   <!-- Robots -->
   <meta name="robots" content="index, follow" />
 
-  <!-- Theme Color -->
+  <!-- Theme -->
   <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AnonChat" />
 
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
-  <!-- Favicon -->
+  <!-- Icons -->
   <link rel="icon" href="/favicon.ico" />
 
-  <!-- Open Graph (Facebook / LinkedIn) -->
+  <!-- Performance -->
+  <link rel="preconnect" href="https://www.googletagmanager.com">
+  <link rel="preconnect" href="https://www.google-analytics.com">
+
+  <!-- Open Graph -->
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Anonymous Chat" />
   <meta property="og:description" content="Connect instantly and privately with our secure anonymous chat application." />
@@ -33,31 +42,29 @@
   <meta property="og:image" content="https://ekpyrotic.vercel.app/preview.png" />
   <meta property="og:site_name" content="Ekpyrotic Chat" />
 
-  <!-- Twitter Card -->
+  <!-- Twitter -->
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Anonymous Chat" />
   <meta name="twitter:description" content="Secure anonymous real-time chat platform." />
   <meta name="twitter:image" content="https://ekpyrotic.vercel.app/preview.png" />
 
   <!-- Security Policy -->
-<meta http-equiv="Content-Security-Policy" 
-      content="default-src 'self'; 
-               img-src 'self' data: blob: https:; 
-               media-src 'self' data: blob:; 
-               script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com; 
-               style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; 
-               font-src 'self' https://fonts.gstatic.com;
-               connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com;">
-
-  <!-- Preconnect (Performance) -->
-  <link rel="preconnect" href="https://www.googletagmanager.com">
-  <link rel="preconnect" href="https://www.google-analytics.com">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self';
+             img-src 'self' data: blob: https:;
+             media-src 'self' data: blob:;
+             script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com;
+             style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+             font-src 'self' https://fonts.gstatic.com;
+             connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com;">
 
   <!-- Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-GDT69WB584"></script>
+
   <script>
     window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
+    function gtag() { dataLayer.push(arguments); }
+
     gtag('js', new Date());
     gtag('config', 'G-GDT69WB584');
   </script>
@@ -87,17 +94,6 @@
 
   <!-- React Entry -->
   <script type="module" src="/src/main.jsx"></script>
-
-  <!-- Service Worker -->
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/service-worker.js")
-          .then(reg => console.log("Service Worker registered", reg))
-          .catch(err => console.log("Service Worker failed", err));
-      });
-    }
-  </script>
 
 </body>
 </html>

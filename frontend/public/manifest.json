@@ -2,12 +2,19 @@
   "name": "Anonymous Chat - Talk to Strangers Online",
   "short_name": "AnonChat",
   "description": "Anonymous chat platform to talk with strangers, play games, and connect instantly without signup.",
+
+  "id": "/",
   "start_url": "/",
   "scope": "/",
+
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+
   "orientation": "portrait",
+
   "background_color": "#0e1621",
   "theme_color": "#2481cc",
+
   "lang": "en",
   "dir": "ltr",
 
@@ -62,22 +69,28 @@
     }
   ],
 
-  "categories": [
-    "social",
-    "entertainment",
-    "communication"
-  ],
+  "categories": ["social", "entertainment", "communication"],
 
   "screenshots": [
     {
       "src": "/screenshots/chat1.png",
       "sizes": "1280x720",
-      "type": "image/png"
+      "type": "image/png",
+      "form_factor": "wide"
     },
     {
       "src": "/screenshots/chat2.png",
       "sizes": "1280x720",
-      "type": "image/png"
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name": "Start Chat",
+      "url": "/",
+      "description": "Start anonymous chat instantly"
     }
   ]
 }

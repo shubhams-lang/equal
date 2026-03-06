@@ -7,14 +7,11 @@ import "./styles/tailwind.css";
 
 /* -----------------------------
    STRICT REFRESH RESET
-   This runs BEFORE React starts.
 -------------------------------- */
 const resetSession = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const isInvite = urlParams.has("join");
 
-  // If the user refreshed without an invite link, nuke everything.
-  // This ensures they always land on the "Landing" view.
   if (!isInvite) {
     localStorage.clear();
     sessionStorage.clear();
@@ -25,7 +22,7 @@ const resetSession = () => {
 resetSession();
 
 /* -----------------------------
-   Error Boundary (Production Safety)
+   Error Boundary
 -------------------------------- */
 class ErrorBoundary extends React.Component {
   constructor(props) {
@@ -39,6 +36,7 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error("App Crash:", error, info);
+
     if (window.gtag) {
       window.gtag("event", "exception", {
         description: error.toString(),
@@ -52,12 +50,16 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="flex items-center justify-center min-h-screen bg-[#0b141a] text-white text-center p-6">
           <div className="max-w-md">
-            <h1 className="text-4xl font-black mb-4 text-red-500 italic">SYSTEM HALT</h1>
+            <h1 className="text-4xl font-black mb-4 text-red-500 italic">
+              SYSTEM HALT
+            </h1>
+
             <p className="text-sm opacity-70 mb-8 uppercase tracking-widest">
               A critical synchronization error occurred.
             </p>
-            <button 
-              onClick={() => window.location.href = window.location.origin}
+
+            <button
+              onClick={() => (window.location.href = window.location.origin)}
               className="bg-[#25D366] text-black px-8 py-3 rounded-2xl font-black"
             >
               REBOOT SYSTEM
@@ -66,26 +68,61 @@ class ErrorBoundary extends React.Component {
         </div>
       );
     }
+
     return this.props.children;
   }
 }
 
 /* -----------------------------
-   Service Worker (PWA Support)
+   Service Worker (PWA)
 -------------------------------- */
 function registerServiceWorker() {
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
-    window.addEventListener("load", () => {
-      navigator.serviceWorker
-        .register("/service-worker.js")
-        .then((reg) => console.log("SW registered"))
-        .catch((err) => console.log("SW failed", err));
+
+    window.addEventListener("load", async () => {
+      try {
+        const reg = await navigator.serviceWorker.register("/service-worker.js");
+
+        console.log("Service Worker registered:", reg);
+
+        /* Detect new updates */
+        reg.addEventListener("updatefound", () => {
+          const newWorker = reg.installing;
+
+          newWorker.addEventListener("statechange", () => {
+            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+              console.log("New version available.");
+            }
+          });
+        });
+
+      } catch (err) {
+        console.error("Service Worker registration failed:", err);
+      }
     });
+
+    /* Reload page when SW updates */
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      console.log("New Service Worker activated");
+      window.location.reload();
+    });
+
+    /* Detect when PWA installed */
+    window.addEventListener("appinstalled", () => {
+      console.log("PWA successfully installed");
+    });
+
   }
 }
 
+/* -----------------------------
+   React Root
+-------------------------------- */
 const rootElement = document.getElementById("root");
-if (!rootElement) throw new Error("Root container missing");
+
+if (!rootElement) {
+  throw new Error("Root container missing");
+}
 
 const root = ReactDOM.createRoot(rootElement);
 

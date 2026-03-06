@@ -3,7 +3,7 @@
   Optimized for React + Vercel + Realtime Apps
 */
 
-const CACHE_VERSION = "anonchat-v1";
+const CACHE_VERSION = "anonchat-v2";
 const STATIC_CACHE = `static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `dynamic-${CACHE_VERSION}`;
 
@@ -12,10 +12,12 @@ const STATIC_ASSETS = [
   "/",
   "/index.html",
   "/manifest.json",
-  "/favicon.ico"
+  "/favicon.ico",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png"
 ];
 
-/* INSTALL */
+/* ---------------- INSTALL ---------------- */
 self.addEventListener("install", (event) => {
   self.skipWaiting();
 
@@ -26,50 +28,65 @@ self.addEventListener("install", (event) => {
   );
 });
 
-/* ACTIVATE */
+/* ---------------- ACTIVATE ---------------- */
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys
-          .filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
-          .map((key) => caches.delete(key))
-      );
-    })
+    Promise.all([
+      /* Clear old caches */
+      caches.keys().then((keys) => {
+        return Promise.all(
+          keys
+            .filter((key) => key !== STATIC_CACHE && key !== DYNAMIC_CACHE)
+            .map((key) => caches.delete(key))
+        );
+      }),
+
+      /* Enable faster navigation */
+      self.registration.navigationPreload?.enable()
+    ])
   );
 
   self.clients.claim();
 });
 
-/* FETCH STRATEGY */
+/* ---------------- FETCH STRATEGY ---------------- */
 self.addEventListener("fetch", (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  /* Ignore socket, api, or non-GET */
+  /* Ignore sockets, APIs, Vercel internals */
   if (
     req.method !== "GET" ||
     url.pathname.startsWith("/socket") ||
-    url.pathname.startsWith("/api")
+    url.pathname.startsWith("/api") ||
+    url.pathname.startsWith("/_next") ||
+    url.pathname.includes("vercel")
   ) {
     return;
   }
 
-  /* HTML -> Network first */
+  /* ---------------- HTML -> Network First ---------------- */
   if (req.headers.get("accept")?.includes("text/html")) {
     event.respondWith(
       fetch(req)
         .then((res) => {
           const copy = res.clone();
-          caches.open(DYNAMIC_CACHE).then((cache) => cache.put(req, copy));
+
+          caches.open(DYNAMIC_CACHE).then((cache) => {
+            cache.put(req, copy);
+          });
+
           return res;
         })
-        .catch(() => caches.match(req).then((res) => res || caches.match("/index.html")))
+        .catch(async () => {
+          const cached = await caches.match(req);
+          return cached || caches.match("/index.html");
+        })
     );
     return;
   }
 
-  /* Static assets -> Cache first */
+  /* ---------------- Static Assets -> Cache First ---------------- */
   event.respondWith(
     caches.match(req).then((cached) => {
       if (cached) return cached;
@@ -91,7 +108,7 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-/* BACKGROUND SYNC (Optional future use) */
+/* ---------------- BACKGROUND SYNC (Future Chat Queue) ---------------- */
 self.addEventListener("sync", (event) => {
   if (event.tag === "sync-chat-messages") {
     event.waitUntil(syncMessages());
@@ -99,38 +116,49 @@ self.addEventListener("sync", (event) => {
 });
 
 async function syncMessages() {
-  // Placeholder for offline message queue
+  /* Placeholder for offline message sending */
   return Promise.resolve();
 }
 
-/* PUSH NOTIFICATIONS (Optional) */
+/* ---------------- PUSH NOTIFICATIONS ---------------- */
 self.addEventListener("push", (event) => {
   const data = event.data?.json() || {};
 
   const title = data.title || "Anonymous Chat";
+
   const options = {
     body: data.body || "New message received",
     icon: "/icons/icon-192.png",
-    badge: "/icons/icon-96.png"
+    badge: "/icons/icon-96.png",
+    vibrate: [200, 100, 200],
+    data: {
+      url: data.url || "/"
+    }
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
 });
 
-/* NOTIFICATION CLICK */
+/* ---------------- NOTIFICATION CLICK ---------------- */
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
 
+  const url = event.notification.data?.url || "/";
+
   event.waitUntil(
-    clients.matchAll({ type: "window" }).then((clientList) => {
-      for (const client of clientList) {
-        if (client.url === "/" && "focus" in client) {
-          return client.focus();
+    clients.matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if (client.url === url && "focus" in client) {
+            return client.focus();
+          }
         }
-      }
-      if (clients.openWindow) {
-        return clients.openWindow("/");
-      }
-    })
+
+        if (clients.openWindow) {
+          return clients.openWindow(url);
+        }
+      })
   );
 });
