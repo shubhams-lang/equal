@@ -73,14 +73,14 @@ export default function ChatLayout({
       {/* MEMBERS PANEL */}
      <aside
   className={`bg-[#111b21] border-r border-white/5 transition-all duration-300 ease-in-out flex-shrink-0 relative z-40 h-full overflow-hidden
-  ${membersOpen ? "w-72" : "w-0 md:w-16"}`}
+  ${membersOpen ? "w-72" : "w-16 md:w-16 sm:w-16"}`}
 >
 
   {/* Toggle Button */}
   <button
     onClick={() => setMembersOpen(!membersOpen)}
-    className="absolute -right-4 top-6 z-50 p-2 rounded-xl bg-[#111b21] border border-white/10
-    hover:bg-blue-600/20 text-gray-400 hover:text-blue-400 transition-all shadow-lg"
+    className="absolute right-2 top-4 z-50 p-2 rounded-xl bg-white/5 hover:bg-blue-600/20
+    text-gray-400 hover:text-blue-400 transition-all"
   >
     {membersOpen ? (
       <FiChevronLeft size={20} />
@@ -89,7 +89,7 @@ export default function ChatLayout({
     )}
   </button>
 
-  {/* Inner Container */}
+  {/* Content */}
   <div className="h-full flex flex-col p-4">
 
     {/* Header */}
@@ -109,19 +109,20 @@ export default function ChatLayout({
         <div
           key={u}
           className={`flex items-center gap-4 group cursor-pointer transition-all
-          ${membersOpen ? "opacity-100" : "opacity-0 md:opacity-100"}`}
+          ${membersOpen ? "opacity-100" : "opacity-0"}`}
         >
 
           {/* Avatar */}
           <div className="relative flex-shrink-0">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#1e293b] to-[#334155]
-            flex items-center justify-center font-bold text-blue-400 border border-white/5
-            shadow-lg group-hover:border-blue-500/50">
+            flex items-center justify-center font-bold text-blue-400 border border-white/5 shadow-lg">
+
               {u[0].toUpperCase()}
+
             </div>
 
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500
-            border-2 border-[#111b21] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.4)]"/>
+            border-2 border-[#111b21] rounded-full"/>
           </div>
 
           {/* User Info */}
@@ -129,7 +130,8 @@ export default function ChatLayout({
             className={`flex flex-col min-w-0 transition-opacity duration-200
             ${membersOpen ? "opacity-100" : "opacity-0"}`}
           >
-            <span className="truncate font-bold text-sm text-gray-200 group-hover:text-white">
+
+            <span className="truncate font-bold text-sm text-gray-200">
               {u}
               {u === username && (
                 <span className="text-[10px] text-blue-500 ml-1">YOU</span>
@@ -139,6 +141,7 @@ export default function ChatLayout({
             <span className="text-[10px] text-gray-500 uppercase">
               Connected
             </span>
+
           </div>
 
         </div>
@@ -152,8 +155,7 @@ export default function ChatLayout({
         onClick={handleInstallClick}
         className="mt-4 flex items-center justify-center gap-2
         bg-blue-600 hover:bg-blue-500 p-3.5 rounded-2xl
-        text-[11px] font-black uppercase tracking-widest
-        transition-all shadow-lg shadow-blue-600/20"
+        text-[11px] font-black uppercase tracking-widest"
       >
         <FiDownload />
         Install App
