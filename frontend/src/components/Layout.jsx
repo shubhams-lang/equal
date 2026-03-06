@@ -72,8 +72,9 @@ export default function ChatLayout({
 
       {/* MEMBERS PANEL */}
      <aside
-  className={`bg-[#111b21] border-r border-white/5 transition-all duration-300 ease-in-out flex-shrink-0 relative z-40 h-full
-  ${membersOpen ? "w-72" : "w-0 md:w-16"}`}>
+  className={`bg-[#111b21] border-r border-white/5 transition-all duration-300 ease-in-out flex-shrink-0 relative z-40 h-full overflow-hidden
+  ${membersOpen ? "w-72" : "w-0 md:w-16"}`}
+>
 
   {/* Toggle Button */}
   <button
@@ -89,7 +90,7 @@ export default function ChatLayout({
   </button>
 
   {/* Inner Container */}
-  <div className="w-72 h-full flex flex-col p-4 overflow-hidden">
+  <div className="h-full flex flex-col p-4">
 
     {/* Header */}
     <div className="flex items-center justify-between mb-8">
@@ -101,7 +102,7 @@ export default function ChatLayout({
       </h2>
     </div>
 
-    {/* Users List */}
+    {/* Users */}
     <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar pr-2">
 
       {users.map((u) => (
@@ -113,20 +114,14 @@ export default function ChatLayout({
 
           {/* Avatar */}
           <div className="relative flex-shrink-0">
-
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-[#1e293b] to-[#334155]
             flex items-center justify-center font-bold text-blue-400 border border-white/5
             shadow-lg group-hover:border-blue-500/50">
-
               {u[0].toUpperCase()}
-
             </div>
 
-            {/* Online Indicator */}
             <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500
-            border-2 border-[#111b21] rounded-full
-            shadow-[0_0_10px_rgba(34,197,94,0.4)]" />
-
+            border-2 border-[#111b21] rounded-full shadow-[0_0_10px_rgba(34,197,94,0.4)]"/>
           </div>
 
           {/* User Info */}
@@ -134,21 +129,16 @@ export default function ChatLayout({
             className={`flex flex-col min-w-0 transition-opacity duration-200
             ${membersOpen ? "opacity-100" : "opacity-0"}`}
           >
-
-            <span className="truncate font-bold text-sm text-gray-200 group-hover:text-white transition-colors">
-
+            <span className="truncate font-bold text-sm text-gray-200 group-hover:text-white">
               {u}
-
               {u === username && (
                 <span className="text-[10px] text-blue-500 ml-1">YOU</span>
               )}
-
             </span>
 
-            <span className="text-[10px] text-gray-500 font-medium uppercase tracking-tighter">
+            <span className="text-[10px] text-gray-500 uppercase">
               Connected
             </span>
-
           </div>
 
         </div>
@@ -156,7 +146,7 @@ export default function ChatLayout({
 
     </div>
 
-    {/* Install App Button */}
+    {/* Install Button */}
     {showInstallBtn && membersOpen && (
       <button
         onClick={handleInstallClick}
