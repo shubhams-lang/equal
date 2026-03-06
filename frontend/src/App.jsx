@@ -6,7 +6,6 @@ import {
   FiDownload, 
   FiUsers, 
   FiShare2, 
-  FiChevronRight, 
   FiActivity 
 } from "react-icons/fi";
 
@@ -247,25 +246,25 @@ function App() {
             </div>
           </div>
 
-          {/* COLLAPSIBLE SIDEBAR: UNIVERSAL CLOSE BUTTON */}
+          {/* SIDEBAR: FIXED FOR MOBILE, RELATIVE FOR DESKTOP */}
           <aside 
-            className={`fixed md:relative right-0 top-0 h-full bg-[#0e161b] border-l border-white/5 transition-all duration-500 ease-in-out z-[100] flex flex-col shadow-2xl ${showMembers ? "w-80 translate-x-0" : "w-0 translate-x-full md:translate-x-0"}`}
+            className={`fixed md:relative right-0 top-0 h-full bg-[#0e161b] border-l border-white/5 transition-all duration-500 ease-in-out z-[100] flex flex-col shadow-2xl ${showMembers ? "w-80 translate-x-0" : "w-0 translate-x-full md:translate-x-0 overflow-hidden"}`}
           >
-            {/* Wrapper div to prevent content squishing */}
+            {/* Inner Content Wrapper */}
             <div className="w-80 h-full flex flex-col p-6 flex-shrink-0">
               <div className="flex justify-between items-center mb-8">
                 <div className="flex items-center gap-2">
                   <FiActivity size={14} className="text-[#25D366]" />
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Live Signals</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Online Users</h3>
                 </div>
                 
-                {/* CLOSE BUTTON FOR ALL DEVICES */}
+                {/* UNIVERSAL CLOSE BUTTON */}
                 <button 
                   onClick={() => setShowMembers(false)} 
-                  className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5 shadow-inner"
-                  title="Close Sidebar"
+                  className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5"
+                  aria-label="Close sidebar"
                 >
-                  <FiX size={20}/>
+                  <FiX size={22}/>
                 </button>
               </div>
               
@@ -276,14 +275,17 @@ function App() {
                   const isMe = uName === nickname;
                   return (
                     <div key={i} className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${isMe ? "bg-[#25D366]/5 border-[#25D366]/20" : "bg-white/5 border-white/5"}`}>
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:rotate-12 transition-transform">
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner">
                         {uAvatar}
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className={`text-sm font-bold truncate ${isMe ? "text-[#25D366]" : "text-slate-300"}`}>
                           {uName} {isMe && "(You)"}
                         </span>
-                        <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">Connected</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></div>
+                          <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">Encrypted</span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -298,10 +300,10 @@ function App() {
             </div>
           </aside>
 
-          {/* MOBILE OVERLAY */}
+          {/* BACKDROP FOR MOBILE */}
           {showMembers && (
             <div 
-              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300" 
+              className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 md:hidden animate-in fade-in" 
               onClick={() => setShowMembers(false)}
             />
           )}
