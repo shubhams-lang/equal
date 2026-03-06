@@ -1,6 +1,14 @@
 import React, { useContext, useState, useEffect, lazy, Suspense } from "react";
 import { ChatContext } from "./context/ChatContext";
-import { FiX, FiShield, FiDownload, FiUsers, FiShare2 } from "react-icons/fi";
+import { 
+  FiX, 
+  FiShield, 
+  FiDownload, 
+  FiUsers, 
+  FiShare2, 
+  FiChevronRight, 
+  FiActivity 
+} from "react-icons/fi";
 
 // ---- MODULAR COMPONENTS ----
 import Chat from "./components/Chat";
@@ -35,7 +43,6 @@ function App() {
   const [connected, setConnected] = useState(true);
   const [copied, setCopied] = useState(false);
   
-  // PWA Install Logic
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
 
@@ -124,7 +131,6 @@ function App() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Handler for reactions (to be passed to Message component)
   const handleReaction = (msgId, emoji) => {
     if (socket) {
       socket.emit("send-reaction", { roomId, msgId, emoji, username: `${avatar} ${nickname}` });
@@ -168,32 +174,14 @@ function App() {
           <h1 className="text-8xl font-black mb-2 text-[#25D366] italic tracking-tighter drop-shadow-2xl">EQUAL</h1>
           <p className="text-slate-500 mb-12 uppercase tracking-[0.6em] text-[10px] font-bold opacity-70 text-center">Multimedia Gaming Hub</p>
           
-          <button 
-            onClick={handleGenerateRoom} 
-            className="w-full max-w-xs bg-[#25D366] hover:bg-[#20bd5b] text-black font-black py-5 rounded-2xl mb-4 transition-all transform hover:scale-105 active:scale-95 shadow-[0_0_40px_rgba(37,211,102,0.2)]"
-          >
+          <button onClick={handleGenerateRoom} className="w-full max-w-xs bg-[#25D366] hover:bg-[#20bd5b] text-black font-black py-5 rounded-2xl mb-4 transition-all shadow-[0_0_40px_rgba(37,211,102,0.2)]">
             {isLoading ? "GENERATING KEY..." : "CREATE PRIVATE ROOM"}
           </button>
 
           <div className="flex gap-2 w-full max-w-xs">
-            <input 
-              value={roomInput} 
-              onChange={(e) => setRoomInput(e.target.value)} 
-              placeholder="Room Code" 
-              className="flex-1 bg-white/5 border border-white/10 p-4 rounded-xl outline-none focus:border-[#25D366]/40 transition-all text-center font-mono" 
-            />
-            <button 
-              onClick={() => { setRoomId(roomInput); setView("setup"); }} 
-              className="bg-slate-800 hover:bg-slate-700 px-6 rounded-xl font-bold transition-all"
-            >JOIN</button>
+            <input value={roomInput} onChange={(e) => setRoomInput(e.target.value)} placeholder="Room Code" className="flex-1 bg-white/5 border border-white/10 p-4 rounded-xl outline-none text-center font-mono" />
+            <button onClick={() => { setRoomId(roomInput); setView("setup"); }} className="bg-slate-800 hover:bg-slate-700 px-6 rounded-xl font-bold transition-all">JOIN</button>
           </div>
-
-          {/* Install WebApp Option on Landing */}
-          {isInstallable && (
-            <button onClick={handleInstallApp} className="mt-8 flex items-center gap-2 text-[#25D366] font-bold text-xs uppercase tracking-widest hover:underline">
-              <FiDownload /> Install Equal WebApp
-            </button>
-          )}
         </div>
       )}
 
@@ -204,23 +192,11 @@ function App() {
             <h2 className="text-[10px] font-black mb-8 text-center uppercase tracking-[0.3em] text-slate-500">Identity Selection</h2>
             <div className="flex justify-start md:justify-center gap-3 mb-10 overflow-x-auto pb-4 no-scrollbar">
               {AVATARS.map((a) => (
-                <button 
-                  key={a} 
-                  onClick={() => setAvatar(a)} 
-                  className={`flex-none text-3xl p-4 rounded-2xl transition-all duration-300 ${avatar === a ? "bg-[#25D366] scale-110 shadow-[0_0_20px_rgba(37,211,102,0.4)]" : "bg-white/5 hover:bg-white/10"}`}
-                > {a} </button>
+                <button key={a} onClick={() => setAvatar(a)} className={`flex-none text-3xl p-4 rounded-2xl transition-all ${avatar === a ? "bg-[#25D366] scale-110 shadow-[0_0_20px_rgba(37,211,102,0.4)]" : "bg-white/5 hover:bg-white/10"}`}> {a} </button>
               ))}
             </div>
-            <input 
-              value={nickname} 
-              onChange={(e) => setNickname(e.target.value)} 
-              placeholder="Enter Callsign" 
-              className="w-full bg-black/20 border border-white/5 text-xl text-center p-5 rounded-2xl mb-8 focus:border-[#25D366]/50 outline-none transition-all" 
-            />
-            <button 
-              onClick={handleEnterChat} 
-              className="w-full bg-[#25D366] hover:bg-[#20bd5b] text-black font-black py-5 rounded-2xl transition-all active:scale-95 shadow-xl"
-            > INITIALIZE CONNECTION </button>
+            <input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="Enter Callsign" className="w-full bg-black/20 border border-white/5 text-xl text-center p-5 rounded-2xl mb-8 outline-none transition-all" />
+            <button onClick={handleEnterChat} className="w-full bg-[#25D366] hover:bg-[#20bd5b] text-black font-black py-5 rounded-2xl transition-all shadow-xl"> INITIALIZE CONNECTION </button>
           </div>
         </div>
       )}
@@ -234,7 +210,7 @@ function App() {
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <span className="text-3xl">{avatar}</span>
-                  <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#111b21] ${connected ? "bg-[#25D366] animate-pulse" : "bg-red-50"}`}></span>
+                  <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#111b21] ${connected ? "bg-[#25D366] animate-pulse" : "bg-red-500"}`}></span>
                 </div>
                 <div>
                   <h2 className="font-black text-[#25D366] text-sm uppercase flex items-center gap-2">
@@ -244,72 +220,91 @@ function App() {
                 </div>
               </div>
 
-              <div className="flex gap-1 md:gap-2">
+              <div className="flex gap-2">
                 <button onClick={copyInviteLink} className={`p-2.5 rounded-xl transition-all border border-white/5 ${copied ? "bg-green-600" : "bg-white/5 text-slate-400 hover:bg-white/10"}`}>
                   <FiShare2 size={18} />
                 </button>
                 <button 
                   onClick={() => setShowMembers(!showMembers)} 
-                  className={`px-4 py-2 rounded-xl text-[10px] font-black tracking-widest transition-all border border-white/5 flex items-center gap-2 ${showMembers ? "bg-[#25D366] text-black" : "bg-white/5 text-slate-400"}`}
+                  className={`p-2.5 rounded-xl transition-all border border-white/5 flex items-center gap-2 ${showMembers ? "bg-[#25D366] text-black" : "bg-white/5 text-slate-400 hover:text-white"}`}
                 >
-                  <FiUsers size={16} className="hidden md:block" /> {users?.length || 1}
+                  <FiUsers size={20} />
+                  <span className="text-[10px] font-black">{users?.length || 1}</span>
                 </button>
               </div>
             </header>
 
             <div className="flex-1 relative bg-[#0b141a]">
-              {/* Ensure Chat component receives onReact if it maps Messages */}
               <Chat onReact={handleReaction} />
             </div>
 
-            {/* Game Bar - Now more compact */}
             <div className="bg-[#111b21] p-2 flex gap-2 overflow-x-auto border-t border-white/5 no-scrollbar">
               {GAMES.map((game) => (
-                <button 
-                  key={game.id} 
-                  onClick={() => sendGameRequest(game.id)} 
-                  className="flex-none bg-white/5 hover:bg-[#25D366] hover:text-black transition-all px-4 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border border-white/5"
-                >
+                <button key={game.id} onClick={() => sendGameRequest(game.id)} className="flex-none bg-white/5 hover:bg-[#25D366] hover:text-black transition-all px-4 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border border-white/5">
                   {game.icon} {game.name}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* COLLAPSIBLE SIDEBAR */}
+          {/* COLLAPSIBLE SIDEBAR: UNIVERSAL CLOSE BUTTON */}
           <aside 
-            className={`absolute md:relative right-0 top-0 h-full bg-[#0e161b] border-l border-white/5 transition-all duration-500 ease-in-out overflow-hidden z-20 flex flex-col shadow-2xl ${showMembers ? "w-80 opacity-100" : "w-0 opacity-0"}`}
+            className={`fixed md:relative right-0 top-0 h-full bg-[#0e161b] border-l border-white/5 transition-all duration-500 ease-in-out z-[100] flex flex-col shadow-2xl ${showMembers ? "w-80 translate-x-0" : "w-0 translate-x-full md:translate-x-0"}`}
           >
-            <div className="p-8 w-80 h-full flex flex-col">
+            {/* Wrapper div to prevent content squishing */}
+            <div className="w-80 h-full flex flex-col p-6 flex-shrink-0">
               <div className="flex justify-between items-center mb-8">
-                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Live Signals</h3>
-                <button onClick={() => setShowMembers(false)} className="text-slate-500 hover:text-white transition-colors">
-                  <FiX size={24}/>
+                <div className="flex items-center gap-2">
+                  <FiActivity size={14} className="text-[#25D366]" />
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Live Signals</h3>
+                </div>
+                
+                {/* CLOSE BUTTON FOR ALL DEVICES */}
+                <button 
+                  onClick={() => setShowMembers(false)} 
+                  className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5 shadow-inner"
+                  title="Close Sidebar"
+                >
+                  <FiX size={20}/>
                 </button>
               </div>
               
-              <div className="space-y-4 overflow-y-auto custom-scrollbar flex-1">
+              <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2">
                 {users?.map((u, i) => {
                   const [uAvatar, ...uNameArr] = u.split(' ');
+                  const uName = uNameArr.join(' ');
+                  const isMe = uName === nickname;
                   return (
-                    <div key={i} className="flex items-center gap-4 bg-white/5 p-4 rounded-2xl border border-white/5 hover:border-[#25D366]/30 transition-all group">
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform">{uAvatar}</div>
-                      <span className="text-sm font-bold text-slate-300 group-hover:text-white transition-colors truncate">{uNameArr.join(' ')}</span>
+                    <div key={i} className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${isMe ? "bg-[#25D366]/5 border-[#25D366]/20" : "bg-white/5 border-white/5"}`}>
+                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner group-hover:rotate-12 transition-transform">
+                        {uAvatar}
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className={`text-sm font-bold truncate ${isMe ? "text-[#25D366]" : "text-slate-300"}`}>
+                          {uName} {isMe && "(You)"}
+                        </span>
+                        <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">Connected</span>
+                      </div>
                     </div>
                   );
                 })}
               </div>
 
               {isInstallable && (
-                <button 
-                  onClick={handleInstallApp}
-                  className="mt-6 w-full bg-[#25D366]/10 hover:bg-[#25D366] text-[#25D366] hover:text-black border border-[#25D366]/20 p-4 rounded-2xl font-black text-[10px] tracking-widest uppercase transition-all flex items-center justify-center gap-2"
-                >
+                <button onClick={handleInstallApp} className="mt-6 w-full bg-[#25D366]/10 hover:bg-[#25D366] text-[#25D366] hover:text-black border border-[#25D366]/20 p-4 rounded-2xl font-black text-[10px] tracking-widest uppercase transition-all flex items-center justify-center gap-2">
                   <FiDownload size={16}/> Install WebApp
                 </button>
               )}
             </div>
           </aside>
+
+          {/* MOBILE OVERLAY */}
+          {showMembers && (
+            <div 
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden animate-in fade-in duration-300" 
+              onClick={() => setShowMembers(false)}
+            />
+          )}
         </div>
       )}
 
