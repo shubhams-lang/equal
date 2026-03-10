@@ -8,6 +8,7 @@ import rateLimit from "express-rate-limit";
 import { v4 as uuidv4 } from "uuid";
 
 const app = express();
+app.set("trust proxy", 1);
 
 /* ==========================
    SECURITY + PERFORMANCE
@@ -17,8 +18,12 @@ app.use(helmet());
 app.use(compression());
 
 app.use(cors({
-  origin: "*",
-  methods: ["GET","POST"]
+  origin: [
+    "http://localhost:5173",
+    "https://ekpyrotic.vercel.app"
+  ],
+  methods: ["GET","POST"],
+  credentials: true
 }));
 
 const limiter = rateLimit({
@@ -31,6 +36,10 @@ app.use(limiter);
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
 
+/* ==========================
+   SERVER
+========================== */
+
 const server = http.createServer(app);
 
 /* ==========================
@@ -39,10 +48,19 @@ const server = http.createServer(app);
 
 const io = new Server(server,{
   cors:{
-    origin:"*",
-    methods:["GET","POST"]
+    origin:[
+      "http://localhost:5173",
+      "https://ekpyrotic.vercel.app"
+    ],
+    methods:["GET","POST"],
+    credentials:true
   },
-  transports:["websocket"],
+
+  transports:["websocket","polling"],
+
+  pingInterval:25000,
+  pingTimeout:60000,
+
   maxHttpBufferSize:1e8
 });
 
@@ -55,22 +73,22 @@ const socketUser = new Map();
 const messageCooldown = new Map();
 
 /*
-rooms = {
- roomId:{
-   users:Set(),
-   scores:{},
-   leaderboard:{},
-   streak:{lastWinner,count},
-   settings:{winTarget}
- }
+room structure
+
+roomId:{
+ users:Set(),
+ scores:{},
+ leaderboard:{},
+ streak:{lastWinner,count},
+ settings:{winTarget}
 }
 */
 
 /* ==========================
-   UTIL
+   UTIL FUNCTIONS
 ========================== */
 
-const getRoom = (roomId) => {
+function getRoom(roomId){
 
   if(!rooms.has(roomId)){
     rooms.set(roomId,{
@@ -83,12 +101,11 @@ const getRoom = (roomId) => {
   }
 
   return rooms.get(roomId);
-};
+}
 
-const cleanRoomIfEmpty = (roomId) => {
+function cleanRoomIfEmpty(roomId){
 
   const room = rooms.get(roomId);
-
   if(!room) return;
 
   if(room.users.size === 0){
@@ -96,9 +113,9 @@ const cleanRoomIfEmpty = (roomId) => {
     console.log("🧹 Room deleted:",roomId);
   }
 
-};
+}
 
-const systemMessage = (roomId,content)=>{
+function systemMessage(roomId,content){
 
   io.to(roomId).emit("receive-message",{
     id:uuidv4(),
@@ -111,20 +128,23 @@ const systemMessage = (roomId,content)=>{
     })
   });
 
-};
+}
 
 /* ==========================
-   HTTP ROUTES
+   HEALTH ROUTE
 ========================== */
 
 app.get("/",(req,res)=>{
   res.send("Anonymous Chat Server Running");
 });
 
+/* ==========================
+   CREATE ROOM
+========================== */
+
 app.post("/create-room",(req,res)=>{
 
   const roomId = uuidv4().slice(0,8).toUpperCase();
-
   getRoom(roomId);
 
   res.json({roomId});
@@ -132,7 +152,7 @@ app.post("/create-room",(req,res)=>{
 });
 
 /* ==========================
-   SOCKET LOGIC
+   SOCKET CONNECTION
 ========================== */
 
 io.on("connection",(socket)=>{
@@ -245,7 +265,7 @@ io.on("connection",(socket)=>{
   });
 
   /* ======================
-     GAME START
+     GAME EVENTS
   ====================== */
 
   socket.on("start-game",({roomId,gameId})=>{
@@ -256,8 +276,12 @@ io.on("connection",(socket)=>{
     socket.to(data.roomId).emit("game-data",data);
   });
 
+  socket.on("leave-game",({roomId})=>{
+    io.to(roomId).emit("game-closed");
+  });
+
   /* ======================
-     SCORE UPDATE
+     SCORE SYSTEM
   ====================== */
 
   socket.on("update-score",({roomId,username})=>{
@@ -335,10 +359,6 @@ io.on("connection",(socket)=>{
 
   });
 
-  socket.on("leave-game",({roomId})=>{
-    io.to(roomId).emit("game-closed");
-  });
-
   /* ======================
      DISCONNECT
   ====================== */
@@ -371,7 +391,7 @@ io.on("connection",(socket)=>{
 });
 
 /* ==========================
-   SERVER START
+   START SERVER
 ========================== */
 
 const PORT = process.env.PORT || 5000;
