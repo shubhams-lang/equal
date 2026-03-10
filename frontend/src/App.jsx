@@ -75,22 +75,31 @@ function App() {
   }, [socket]);
 
   const handleGenerateRoom = async () => {
+  try {
 
-    try {
-
-      const res = await fetch(`${API_URL}/create-room`, { method: "POST" });
-      const data = await res.json();
-
-      if (data.roomId) {
-        setRoomId(data.roomId);
-        setView("setup");
+    const res = await fetch(`${API_URL}/create-room`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
       }
+    });
 
-    } catch {
-      alert("Server unreachable");
+    if (!res.ok) {
+      throw new Error(`HTTP error: ${res.status}`);
     }
 
-  };
+    const data = await res.json();
+
+    if (data.roomId) {
+      setRoomId(data.roomId);
+      setView("setup");
+    }
+
+  } catch (err) {
+    console.error("Room creation error:", err);
+    alert("Server unreachable");
+  }
+};
 
   const handleEnterChat = () => {
 
