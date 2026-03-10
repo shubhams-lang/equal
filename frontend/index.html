@@ -53,10 +53,10 @@
     content="default-src 'self';
              img-src 'self' data: blob: https:;
              media-src 'self' data: blob:;
-             script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com;
+             script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://va.vercel-scripts.com;
              style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
              font-src 'self' https://fonts.gstatic.com;
-             connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com;">
+             connect-src 'self' https://equal.onrender.com wss://equal.onrender.com https://www.google-analytics.com https://*.google-analytics.com https://va.vercel-scripts.com https://vitals.vercel-insights.com;">
 
   <!-- Google Analytics -->
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-GDT69WB584"></script>
@@ -96,8 +96,6 @@
 
   <!-- React Entry -->
   <script type="module" src="/src/main.jsx"></script>
-
-import { Analytics } from "@vercel/analytics/next"
 
 </body>
 </html>
