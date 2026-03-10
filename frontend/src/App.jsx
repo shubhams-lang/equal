@@ -248,27 +248,23 @@ function App() {
 
           {/* SIDEBAR: FIXED FOR MOBILE, RELATIVE FOR DESKTOP */}
           <aside
-            className={`fixed md:relative top-0 right-0 h-full w-80 bg-[#0e161b]
-              border-l border-white/5 z-50 transform transition-transform duration-300
-              ease-out ${showMembers ? "translate-x-0" : "translate-x-full md:translate-x-0"}`}
-          >
+  className={`fixed top-0 right-0 h-full w-80 bg-[#0e161b] border-l border-white/5 z-50
+  transform transition-transform duration-300 ease-out
+  ${showMembers ? "translate-x-0" : "translate-x-full"}`}
+>
             {/* Inner Content Wrapper */}
-            <div className="flex justify-between items-center mb-8">
-              <div className="flex items-center gap-2">
-                <FiActivity size={14} className="text-[#25D366]" />
-                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">
-                  Online Users
-                </h3>
-              </div>
+           <div className="flex justify-between items-center mb-6">
+  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+    Online Users
+  </h3>
 
-              <button
-                onClick={() => setShowMembers(false)}
-                className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5"
-              >
-                <FiX size={20} />
-              </button>
-            </div>
-
+  <button
+    onClick={() => setShowMembers(false)}
+    className="p-2 rounded-lg bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 transition"
+  >
+    <FiX size={18}/>
+  </button>
+</div>
             <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2">
               {users?.map((u, i) => {
                 const [uAvatar, ...uNameArr] = u.split(' ');
