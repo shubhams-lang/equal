@@ -260,7 +260,7 @@ export const ChatProvider = ({ children }) => {
       CONTEXT VALUE
   ========================== */
   const value = useMemo(() => ({
-    username, roomId, messages, users, opponent, typingUser,
+    username, roomId, setRoomId, messages, users, opponent, typingUser,
     activeGame, activeGameRequest, scores, leaderboard, streak, settings, myStickers,
     socket, joinRoom, leaveRoom, sendMessage, handleReaction, handleTyping,
     sendGameRequest, acceptGameRequest, declineGameRequest, updateScore, closeGame, resetScores
