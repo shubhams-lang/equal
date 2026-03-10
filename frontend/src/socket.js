@@ -1,14 +1,19 @@
 import { io } from "socket.io-client";
 
+const SERVER_URL = "https://equal.onrender.com";
+
 export const socket = io("https://equal.onrender.com", {
   transports: ["websocket", "polling"],
-
+  withCredentials: true,
   reconnection: true,
   reconnectionAttempts: Infinity,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
+  reconnectionDelay: 2000
+});
 
-  timeout: 20000,
+socket.on("connect", () => {
+  console.log("✅ Connected to server:", socket.id);
+});
 
-  autoConnect: true
+socket.on("connect_error", (err) => {
+  console.error("❌ Connection error:", err.message);
 });

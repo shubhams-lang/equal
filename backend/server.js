@@ -45,23 +45,24 @@ const server = http.createServer(app);
 /* ==========================
    SOCKET.IO
 ========================== */
-
-const io = new Server(server,{
-  cors:{
-    origin:[
+const io = new Server(server, {
+  cors: {
+    origin: [
       "http://localhost:5173",
       "https://ekpyrotic.vercel.app"
     ],
-    methods:["GET","POST"],
-    credentials:true
+    methods: ["GET", "POST"],
+    credentials: true
   },
 
-  transports:["websocket","polling"],
+  transports: ["websocket", "polling"],
 
-  pingInterval:25000,
-  pingTimeout:60000,
+  allowEIO3: true,
 
-  maxHttpBufferSize:1e8
+  pingInterval: 25000,
+  pingTimeout: 60000,
+
+  maxHttpBufferSize: 1e8
 });
 
 /* ==========================
