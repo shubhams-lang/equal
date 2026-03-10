@@ -4,11 +4,11 @@ import {
   FiPlus, 
   FiSmile, 
   FiChevronDown, 
-  FiGamepad, 
   FiX, 
   FiCheck,
   FiShield
 } from "react-icons/fi";
+import { GiGamepad } from "react-icons/gi";
 import { ChatContext } from "../context/ChatContext";
 import Message from "./Message";
 
@@ -66,7 +66,7 @@ export default function Chat() {
           <div className="bg-[#1c2733]/90 backdrop-blur-2xl border border-blue-500/30 p-4 rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400 border border-blue-500/20">
-                <FiGamepad size={24} className="animate-pulse" />
+                <GiGamepad size={20}  className="animate-pulse" />
               </div>
               <div>
                 <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400/80">Incoming Challenge</h4>
