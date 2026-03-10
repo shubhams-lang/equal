@@ -247,57 +247,57 @@ function App() {
           </div>
 
           {/* SIDEBAR: FIXED FOR MOBILE, RELATIVE FOR DESKTOP */}
-          <aside 
-            className={`fixed md:relative right-0 top-0 h-full bg-[#0e161b] border-l border-white/5 transition-all duration-500 ease-in-out z-[100] flex flex-col shadow-2xl ${showMembers ? "w-80 translate-x-0" : "w-0 translate-x-full md:translate-x-0 overflow-hidden"}`}
+          <aside
+            className={`fixed md:relative top-0 right-0 h-full w-80 bg-[#0e161b]
+              border-l border-white/5 z-50 transform transition-transform duration-300
+              ease-out ${showMembers ? "translate-x-0" : "translate-x-full md:translate-x-0"}`}
           >
             {/* Inner Content Wrapper */}
-            <div className="w-80 h-full flex flex-col p-6 flex-shrink-0">
-              <div className="flex justify-between items-center mb-8">
-                <div className="flex items-center gap-2">
-                  <FiActivity size={14} className="text-[#25D366]" />
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">Online Users</h3>
-                </div>
-                
-                {/* UNIVERSAL CLOSE BUTTON */}
-                <button 
-                  onClick={() => setShowMembers(false)} 
-                  className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5"
-                  aria-label="Close sidebar"
-                >
-                  <FiX size={22}/>
-                </button>
-              </div>
-              
-              <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2">
-                {users?.map((u, i) => {
-                  const [uAvatar, ...uNameArr] = u.split(' ');
-                  const uName = uNameArr.join(' ');
-                  const isMe = uName === nickname;
-                  return (
-                    <div key={i} className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${isMe ? "bg-[#25D366]/5 border-[#25D366]/20" : "bg-white/5 border-white/5"}`}>
-                      <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner">
-                        {uAvatar}
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className={`text-sm font-bold truncate ${isMe ? "text-[#25D366]" : "text-slate-300"}`}>
-                          {uName} {isMe && "(You)"}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></div>
-                          <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">Encrypted</span>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+            <div className="flex justify-between items-center mb-8">
+              <div className="flex items-center gap-2">
+                <FiActivity size={14} className="text-[#25D366]" />
+                <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-500">
+                  Online Users
+                </h3>
               </div>
 
-              {isInstallable && (
-                <button onClick={handleInstallApp} className="mt-6 w-full bg-[#25D366]/10 hover:bg-[#25D366] text-[#25D366] hover:text-black border border-[#25D366]/20 p-4 rounded-2xl font-black text-[10px] tracking-widest uppercase transition-all flex items-center justify-center gap-2">
-                  <FiDownload size={16}/> Install WebApp
-                </button>
-              )}
+              <button
+                onClick={() => setShowMembers(false)}
+                className="p-2 bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-500 rounded-xl transition-all border border-white/5"
+              >
+                <FiX size={20} />
+              </button>
             </div>
+
+            <div className="space-y-3 overflow-y-auto custom-scrollbar flex-1 pr-2">
+              {users?.map((u, i) => {
+                const [uAvatar, ...uNameArr] = u.split(' ');
+                const uName = uNameArr.join(' ');
+                const isMe = uName === nickname;
+                return (
+                  <div key={i} className={`flex items-center gap-4 p-3 rounded-2xl border transition-all ${isMe ? "bg-[#25D366]/5 border-[#25D366]/20" : "bg-white/5 border-white/5"}`}>
+                    <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center text-xl shadow-inner">
+                      {uAvatar}
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className={`text-sm font-bold truncate ${isMe ? "text-[#25D366]" : "text-slate-300"}`}>
+                        {uName} {isMe && "(You)"}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <div className="w-1.5 h-1.5 rounded-full bg-[#25D366] animate-pulse"></div>
+                        <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold">Encrypted</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {isInstallable && (
+              <button onClick={handleInstallApp} className="mt-6 w-full bg-[#25D366]/10 hover:bg-[#25D366] text-[#25D366] hover:text-black border border-[#25D366]/20 p-4 rounded-2xl font-black text-[10px] tracking-widest uppercase transition-all flex items-center justify-center gap-2">
+                <FiDownload size={16} /> Install WebApp
+              </button>
+            )}
           </aside>
 
           {/* BACKDROP FOR MOBILE */}
