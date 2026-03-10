@@ -8,6 +8,7 @@ import {
   FiShare2, 
   FiActivity 
 } from "react-icons/fi";
+import { Analytics } from "@vercel/analytics/react";
 
 // ---- MODULAR COMPONENTS ----
 import Chat from "./components/Chat";
@@ -311,6 +312,7 @@ function App() {
       )}
 
       {activeGame && renderGame()}
+      <Analytics />
     </div>
   );
 }
