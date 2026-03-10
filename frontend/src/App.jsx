@@ -8,6 +8,7 @@ import {
   FiShare2, 
   FiActivity 
 } from "react-icons/fi";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 // ---- MODULAR COMPONENTS ----
 import Chat from "./components/Chat";
@@ -311,6 +312,7 @@ function App() {
       )}
 
       {activeGame && renderGame()}
+      <SpeedInsights />
     </div>
   );
 }
