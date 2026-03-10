@@ -5,7 +5,10 @@ export default defineConfig({
   plugins: [react()],
 
   optimizeDeps: {
-    include: ["react-helmet-async"]
+    include: [
+      "react-helmet-async",
+      "react-icons/fi"
+    ]
   },
 
   build: {
@@ -15,7 +18,8 @@ export default defineConfig({
         manualChunks: {
           vendor: ["react", "react-dom"],
           helmet: ["react-helmet-async"],
-          socket: ["socket.io-client"]
+          socket: ["socket.io-client"],
+          icons: ["react-icons"]
         }
       }
     }
