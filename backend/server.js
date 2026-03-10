@@ -29,7 +29,7 @@ const limiter = rateLimit({
 app.use(limiter);
 
 app.use(express.json({ limit: "50mb" }));
-app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(express.urlencoded({ extended: true }));
 
 const server = http.createServer(app);
 
@@ -37,13 +37,13 @@ const server = http.createServer(app);
    SOCKET.IO
 ========================== */
 
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET","POST"]
+const io = new Server(server,{
+  cors:{
+    origin:"*",
+    methods:["GET","POST"]
   },
-  transports: ["websocket"],
-  maxHttpBufferSize: 1e8
+  transports:["websocket"],
+  maxHttpBufferSize:1e8
 });
 
 /* ==========================
@@ -51,6 +51,9 @@ const io = new Server(server, {
 ========================== */
 
 const rooms = new Map();
+const socketUser = new Map();
+const messageCooldown = new Map();
+
 /*
 rooms = {
  roomId:{
@@ -63,14 +66,13 @@ rooms = {
 }
 */
 
-const socketUser = new Map();
-
 /* ==========================
    UTIL
 ========================== */
 
 const getRoom = (roomId) => {
-  if (!rooms.has(roomId)) {
+
+  if(!rooms.has(roomId)){
     rooms.set(roomId,{
       users:new Set(),
       scores:{},
@@ -79,29 +81,54 @@ const getRoom = (roomId) => {
       settings:{winTarget:10}
     });
   }
+
   return rooms.get(roomId);
 };
 
 const cleanRoomIfEmpty = (roomId) => {
-  const room = rooms.get(roomId);
-  if (!room) return;
 
-  if (room.users.size === 0) {
+  const room = rooms.get(roomId);
+
+  if(!room) return;
+
+  if(room.users.size === 0){
     rooms.delete(roomId);
+    console.log("🧹 Room deleted:",roomId);
   }
+
+};
+
+const systemMessage = (roomId,content)=>{
+
+  io.to(roomId).emit("receive-message",{
+    id:uuidv4(),
+    username:"System",
+    content,
+    type:"system",
+    timestamp:new Date().toLocaleTimeString([],{
+      hour:"2-digit",
+      minute:"2-digit"
+    })
+  });
+
 };
 
 /* ==========================
    HTTP ROUTES
 ========================== */
 
-app.get("/", (req,res)=>{
+app.get("/",(req,res)=>{
   res.send("Anonymous Chat Server Running");
 });
 
 app.post("/create-room",(req,res)=>{
-  const roomId = uuidv4().slice(0,8);
+
+  const roomId = uuidv4().slice(0,8).toUpperCase();
+
+  getRoom(roomId);
+
   res.json({roomId});
+
 });
 
 /* ==========================
@@ -120,7 +147,17 @@ io.on("connection",(socket)=>{
 
     if(!roomId || !username) return;
 
-    const room = getRoom(roomId);
+    const room = rooms.get(roomId);
+
+    if(!room){
+      socket.emit("room-not-found");
+      return;
+    }
+
+    if(room.users.has(username)){
+      socket.emit("username-taken");
+      return;
+    }
 
     socket.join(roomId);
 
@@ -128,16 +165,14 @@ io.on("connection",(socket)=>{
 
     room.users.add(username);
 
-    if(room.scores[username]===undefined)
-      room.scores[username]=0;
+    if(room.scores[username] === undefined)
+      room.scores[username] = 0;
 
-    if(room.leaderboard[username]===undefined)
-      room.leaderboard[username]=0;
+    if(room.leaderboard[username] === undefined)
+      room.leaderboard[username] = 0;
 
     io.to(roomId).emit("online-users",[...room.users]);
-
     io.to(roomId).emit("score-updated",room.scores);
-
     io.to(roomId).emit("settings-updated",room.settings);
 
     io.to(roomId).emit("leaderboard-updated",{
@@ -145,16 +180,35 @@ io.on("connection",(socket)=>{
       streak:room.streak
     });
 
-    socket.to(roomId).emit("receive-message",{
-      id:uuidv4(),
-      username:"System",
-      content:`${username} joined the chat`,
-      type:"system",
-      timestamp:new Date().toLocaleTimeString([],{
-        hour:"2-digit",
-        minute:"2-digit"
-      })
-    });
+    systemMessage(roomId,`${username} joined the chat`);
+
+  });
+
+  /* ======================
+     LEAVE ROOM
+  ====================== */
+
+  socket.on("leave-room",()=>{
+
+    const user = socketUser.get(socket.id);
+    if(!user) return;
+
+    const {roomId,username} = user;
+
+    const room = rooms.get(roomId);
+    if(!room) return;
+
+    room.users.delete(username);
+
+    socket.leave(roomId);
+
+    io.to(roomId).emit("online-users",[...room.users]);
+
+    systemMessage(roomId,`${username} left the chat`);
+
+    socketUser.delete(socket.id);
+
+    cleanRoomIfEmpty(roomId);
 
   });
 
@@ -165,6 +219,14 @@ io.on("connection",(socket)=>{
   socket.on("send-message",(data)=>{
 
     if(!data?.roomId) return;
+
+    const now = Date.now();
+
+    if(messageCooldown.has(socket.id)){
+      if(now - messageCooldown.get(socket.id) < 300) return;
+    }
+
+    messageCooldown.set(socket.id,now);
 
     socket.to(data.roomId).emit("receive-message",data);
 
@@ -203,7 +265,7 @@ io.on("connection",(socket)=>{
     const room = rooms.get(roomId);
     if(!room) return;
 
-    room.scores[username]=(room.scores[username]||0)+1;
+    room.scores[username] = (room.scores[username]||0) + 1;
 
     io.to(roomId).emit("score-updated",room.scores);
 
@@ -215,7 +277,7 @@ io.on("connection",(socket)=>{
     if(!room) return;
 
     Object.keys(room.scores).forEach(u=>{
-      room.scores[u]=0;
+      room.scores[u] = 0;
     });
 
     io.to(roomId).emit("scores-reset-confirmed",room.scores);
@@ -246,17 +308,11 @@ io.on("connection",(socket)=>{
       streak:room.streak
     });
 
-    if(room.streak.count >=3){
-      io.to(roomId).emit("receive-message",{
-        id:uuidv4(),
-        username:"System",
-        content:`🔥 STREAK: ${username} won ${room.streak.count} matches`,
-        type:"system",
-        timestamp:new Date().toLocaleTimeString([],{
-          hour:"2-digit",
-          minute:"2-digit"
-        })
-      });
+    if(room.streak.count >= 3){
+      systemMessage(
+        roomId,
+        `🔥 STREAK: ${username} won ${room.streak.count} matches`
+      );
     }
 
   });
@@ -301,20 +357,14 @@ io.on("connection",(socket)=>{
 
     io.to(roomId).emit("online-users",[...room.users]);
 
-    socket.to(roomId).emit("receive-message",{
-      id:uuidv4(),
-      username:"System",
-      content:`${username} left the chat`,
-      type:"system",
-      timestamp:new Date().toLocaleTimeString([],{
-        hour:"2-digit",
-        minute:"2-digit"
-      })
-    });
+    systemMessage(roomId,`${username} disconnected`);
 
     socketUser.delete(socket.id);
+    messageCooldown.delete(socket.id);
 
     cleanRoomIfEmpty(roomId);
+
+    console.log("User disconnected:",socket.id);
 
   });
 
