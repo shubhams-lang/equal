@@ -73,19 +73,18 @@ function App() {
     };
 
   }, [socket]);
+  /* ==========================socket.io===*/
 
   const handleGenerateRoom = async () => {
+
   try {
 
-    const res = await fetch(`${API_URL}/create-room`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      }
+    const res = await fetch("https://equal.onrender.com/create-room", {
+      method: "POST"
     });
 
     if (!res.ok) {
-      throw new Error(`HTTP error: ${res.status}`);
+      throw new Error("Server response error");
     }
 
     const data = await res.json();
@@ -96,9 +95,34 @@ function App() {
     }
 
   } catch (err) {
-    console.error("Room creation error:", err);
-    alert("Server unreachable");
+
+    console.error("Room creation failed:", err);
+
+    // retry once after backend wakes
+    setTimeout(async () => {
+
+      try {
+
+        const retry = await fetch("https://equal.onrender.com/create-room", {
+          method: "POST"
+        });
+
+        const data = await retry.json();
+
+        if (data.roomId) {
+          setRoomId(data.roomId);
+          setView("setup");
+          return;
+        }
+
+      } catch {}
+
+      alert("Server is waking up. Please try again.");
+
+    }, 4000);
+
   }
+
 };
 
   const handleEnterChat = () => {
