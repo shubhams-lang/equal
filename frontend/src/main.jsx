@@ -7,15 +7,18 @@ import "./styles/tailwind.css";
 
 /* -----------------------------
    STRICT REFRESH RESET
+   Moved inside a check to ensure it only runs once
 -------------------------------- */
 const resetSession = () => {
   const urlParams = new URLSearchParams(window.location.search);
   const isInvite = urlParams.has("join");
 
-  if (!isInvite) {
+  // Only clear if we aren't in the middle of a room join or already active
+  if (!isInvite && !sessionStorage.getItem("app_initialized")) {
     localStorage.clear();
     sessionStorage.clear();
-    console.log("Session reset: Storage cleared on refresh.");
+    sessionStorage.setItem("app_initialized", "true");
+    console.log("Session reset: Storage cleared on fresh boot.");
   }
 };
 
@@ -36,13 +39,6 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     console.error("App Crash:", error, info);
-
-    if (window.gtag) {
-      window.gtag("event", "exception", {
-        description: error.toString(),
-        fatal: true
-      });
-    }
   }
 
   render() {
@@ -50,17 +46,15 @@ class ErrorBoundary extends React.Component {
       return (
         <div className="flex items-center justify-center min-h-screen bg-[#0b141a] text-white text-center p-6">
           <div className="max-w-md">
-            <h1 className="text-4xl font-black mb-4 text-red-500 italic">
-              SYSTEM HALT
+            <h1 className="text-4xl font-black mb-4 text-red-500 italic uppercase">
+              System Halt
             </h1>
-
             <p className="text-sm opacity-70 mb-8 uppercase tracking-widest">
               A critical synchronization error occurred.
             </p>
-
             <button
               onClick={() => (window.location.href = window.location.origin)}
-              className="bg-[#25D366] text-black px-8 py-3 rounded-2xl font-black"
+              className="bg-blue-600 hover:bg-blue-500 text-white px-8 py-4 rounded-2xl font-black transition-all active:scale-95"
             >
               REBOOT SYSTEM
             </button>
@@ -68,50 +62,7 @@ class ErrorBoundary extends React.Component {
         </div>
       );
     }
-
     return this.props.children;
-  }
-}
-
-/* -----------------------------
-   Service Worker (PWA)
--------------------------------- */
-function registerServiceWorker() {
-  if ("serviceWorker" in navigator && import.meta.env.PROD) {
-
-    window.addEventListener("load", async () => {
-      try {
-        const reg = await navigator.serviceWorker.register("/service-worker.js");
-
-        console.log("Service Worker registered:", reg);
-
-        /* Detect new updates */
-        reg.addEventListener("updatefound", () => {
-          const newWorker = reg.installing;
-
-          newWorker.addEventListener("statechange", () => {
-            if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
-              console.log("New version available.");
-            }
-          });
-        });
-
-      } catch (err) {
-        console.error("Service Worker registration failed:", err);
-      }
-    });
-
-    /* Reload page when SW updates */
-    navigator.serviceWorker.addEventListener("controllerchange", () => {
-      console.log("New Service Worker activated");
-      window.location.reload();
-    });
-
-    /* Detect when PWA installed */
-    window.addEventListener("appinstalled", () => {
-      console.log("PWA successfully installed");
-    });
-
   }
 }
 
@@ -119,14 +70,13 @@ function registerServiceWorker() {
    React Root
 -------------------------------- */
 const rootElement = document.getElementById("root");
-
-if (!rootElement) {
-  throw new Error("Root container missing");
-}
+if (!rootElement) throw new Error("Root container missing");
 
 const root = ReactDOM.createRoot(rootElement);
 
 root.render(
+  // NOTE: If buttons still don't work, temporarily remove <React.StrictMode> 
+  // to prevent double-socket initialization in development.
   <React.StrictMode>
     <HelmetProvider>
       <ErrorBoundary>
@@ -138,4 +88,11 @@ root.render(
   </React.StrictMode>
 );
 
-registerServiceWorker();
+/* -----------------------------
+   Service Worker (PWA)
+-------------------------------- */
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch(console.error);
+  });
+}
