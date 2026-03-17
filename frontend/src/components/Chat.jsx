@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useContext } from "react";
+import React, { useRef, useEffect, useState, useContext, useCallback, useMemo } from "react";
 import { 
   FiSend, 
   FiPlus, 
@@ -19,8 +19,7 @@ export default function Chat() {
     typingUser, 
     activeGameRequest, 
     acceptGameRequest, 
-    declineGameRequest,
-    handleReaction // Destructured from context
+    declineGameRequest
   } = useContext(ChatContext);
 
   const messageEndRef = useRef(null);
@@ -29,33 +28,52 @@ export default function Chat() {
   const [text, setText] = useState("");
   const [showScrollBtn, setShowScrollBtn] = useState(false);
 
-  // --- SCROLL LOGIC ---
-  const handleScroll = () => {
+  // --- OPTIMIZED SCROLL LOGIC ---
+  // Memoizing the scroll handler prevents unnecessary calculations during renders
+  const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
-    // Show button if user is > 300px from bottom
-    setShowScrollBtn(scrollHeight - scrollTop - clientHeight > 300);
-  };
+    const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 300;
+    setShowScrollBtn(isFarFromBottom);
+  }, []);
 
-  const scrollToBottom = () => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const scrollToBottom = useCallback((behavior = "smooth") => {
+    messageEndRef.current?.scrollIntoView({ behavior });
+  }, []);
 
-  // Auto-scroll when new messages arrive, unless user is looking at history
+  // Auto-scroll when new messages arrive, unless the user has scrolled up to read history
   useEffect(() => {
     if (!showScrollBtn) {
-      scrollToBottom();
+      scrollToBottom("smooth");
     }
-  }, [messages, typingUser]);
+  }, [messages.length, typingUser, showScrollBtn, scrollToBottom]);
 
   // --- HANDLERS ---
-  const handleSend = () => {
-    if (!text.trim()) return;
-    sendMessage(text);
+  const handleSend = useCallback(() => {
+    const trimmedText = text.trim();
+    if (!trimmedText) return;
+    
+    sendMessage(trimmedText);
     setText("");
-    // Forced scroll on manual send
-    setTimeout(scrollToBottom, 50);
-  };
+    
+    // Using requestAnimationFrame ensures the DOM update from 'setText' 
+    // is processed before we trigger the scroll position jump.
+    requestAnimationFrame(() => {
+      scrollToBottom("auto");
+    });
+  }, [text, sendMessage, scrollToBottom]);
+
+  // --- MEMOIZED MESSAGE LIST ---
+  // CRITICAL PERFORMANCE FIX: This prevents the entire list of Message components 
+  // from re-rendering every time 'text' changes (i.e., every keystroke).
+  const renderedMessages = useMemo(() => {
+    return messages.map((msg, i) => (
+      <Message 
+        key={msg.id || `msg-${i}`} 
+        msg={msg} 
+      />
+    ));
+  }, [messages]);
 
   return (
     <div className="flex flex-col h-full bg-[#0b141a] relative overflow-hidden">
@@ -66,7 +84,7 @@ export default function Chat() {
           <div className="bg-[#1c2733]/90 backdrop-blur-2xl border border-blue-500/30 p-4 rounded-2xl shadow-[0_25px_60px_-15px_rgba(0,0,0,0.7)] flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400 border border-blue-500/20">
-                <GiGamepad size={20}  className="animate-pulse" />
+                <GiGamepad size={20} className="animate-pulse" />
               </div>
               <div>
                 <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-blue-400/80">Incoming Challenge</h4>
@@ -97,7 +115,7 @@ export default function Chat() {
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 md:px-10 py-6 space-y-2 custom-scrollbar bg-[radial-gradient(circle_at_center,_#111b21_0%,_#0b141a_100%)]"
+        className="flex-1 overflow-y-auto px-4 md:px-10 py-6 custom-scrollbar bg-[radial-gradient(circle_at_center,_#111b21_0%,_#0b141a_100%)]"
       >
         {messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center p-10 animate-in fade-in duration-1000">
@@ -112,12 +130,7 @@ export default function Chat() {
           </div>
         ) : (
           <div className="flex flex-col min-h-full justify-end">
-            {messages.map((msg, i) => (
-              <Message 
-                key={msg.id || i} 
-                msg={msg} 
-              />
-            ))}
+            {renderedMessages}
           </div>
         )}
         
@@ -138,7 +151,7 @@ export default function Chat() {
       {/* --- FLOATING SCROLL BUTTON --- */}
       {showScrollBtn && (
         <button
-          onClick={scrollToBottom}
+          onClick={() => scrollToBottom("smooth")}
           className="absolute bottom-28 right-8 p-3.5 bg-blue-600 text-white rounded-full shadow-[0_10px_30px_rgba(37,99,235,0.4)] hover:bg-blue-500 hover:scale-110 transition-all animate-in fade-in slide-in-from-bottom-4 z-50 group border border-blue-400/20"
         >
           <div className="relative">

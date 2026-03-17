@@ -1,4 +1,4 @@
-import React, { useContext, useState } from "react";
+import React, { useContext, useState, memo } from "react";
 import { ChatContext } from "../context/ChatContext";
 import { 
   ArrowDownTrayIcon, 
@@ -6,7 +6,20 @@ import {
   FaceSmileIcon 
 } from "@heroicons/react/24/outline";
 
-export default function Message({ msg }) {
+// Move static data and helpers outside to prevent re-creation on every render
+const EMOJIS = ["👍", "❤️", "😂", "😮", "🔥", "🚀"];
+
+const downloadMedia = (url, fileName) => {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName || `media_${Date.now()}`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// Use React.memo to prevent re-renders unless props change
+const Message = memo(({ msg }) => {
   const { 
     id, 
     username: msgUser, 
@@ -18,21 +31,12 @@ export default function Message({ msg }) {
   
   // Normalizing content field names
   const content = msg.content || msg.message;
+  
+  // Pull only what's necessary from Context
   const { username: currentUser, handleReaction } = useContext(ChatContext);
   const isOwn = msgUser === currentUser;
 
   const [showPicker, setShowPicker] = useState(false);
-  const emojis = ["👍", "❤️", "😂", "😮", "🔥", "🚀"];
-
-  // Helper to trigger file downloads
-  const downloadMedia = (url, fileName) => {
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = fileName || `media_${Date.now()}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   // --- SYSTEM MESSAGE RENDER ---
   if (type === "system" || system) {
@@ -71,7 +75,7 @@ export default function Message({ msg }) {
               isOwn ? "right-0" : "left-0"
             }`}
           >
-            {emojis.map((emoji) => (
+            {EMOJIS.map((emoji) => (
               <button
                 key={emoji}
                 onClick={() => {
@@ -172,7 +176,7 @@ export default function Message({ msg }) {
               const hasReacted = r.users?.includes(currentUser);
               return (
                 <button
-                  key={idx}
+                  key={`${id}-reaction-${idx}`}
                   onClick={() => handleReaction(id, r.emoji)}
                   className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] border transition-all active:scale-90 shadow-lg ${
                     hasReacted
@@ -198,4 +202,6 @@ export default function Message({ msg }) {
       </div>
     </div>
   );
-}
+});
+
+export default Message;
