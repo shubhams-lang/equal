@@ -143,13 +143,18 @@ app.get("/",(req,res)=>{
    CREATE ROOM
 ========================== */
 
-app.post("/create-room",(req,res)=>{
+app.post("/create-room", async (req, res) => {
+  try {
+    const roomId = uuidv4().slice(0,8).toUpperCase();
 
-  const roomId = uuidv4().slice(0,8).toUpperCase();
-  getRoom(roomId);
+    await getRoom(roomId); // ✅ ensure it completes
 
-  res.json({roomId});
+    res.json({ roomId });
 
+  } catch (err) {
+    console.error("Create room error:", err);
+    res.status(500).json({ error: "Failed to create room" });
+  }
 });
 
 /* ==========================
