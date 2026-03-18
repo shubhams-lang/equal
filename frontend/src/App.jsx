@@ -1,215 +1,297 @@
 import React, { useContext, useState, useEffect, lazy, Suspense } from "react";
 import { ChatContext } from "./context/ChatContext";
-import { FiUsers, FiShare2, FiLogOut, FiShield, FiPlus, FiArrowRight } from "react-icons/fi";
+import { FiX, FiShield, FiUsers, FiShare2, FiLogOut } from "react-icons/fi";
 import Chat from "./components/Chat";
 
-// Lazy loading for performance optimization
 const Pong = lazy(() => import("./components/Games/Pong"));
+const SliderRace = lazy(() => import("./components/Games/SlideRace"));
+const TapTap = lazy(() => import("./components/Games/TapTap"));
 const TicTacToe = lazy(() => import("./components/Games/TicTacToe"));
+const WordScramble = lazy(() => import("./components/Games/WordScramble"));
 
 function App() {
+  // Pulling values from context with fallbacks to prevent destructuring errors
   const context = useContext(ChatContext) || {};
-  const { 
-    roomId, setRoomId, connected, joinRoom, users = [], 
-    activeGame, closeGame, socket, scores = {}, username 
+  const {
+    roomId,
+    setRoomId,
+    users = [],
+    opponent,
+    activeGame,
+    scores = {},
+    updateScore,
+    sendGameRequest,
+    closeGame,
+    joinRoom,
+    socket,
+    connected: contextConnected // Using context-based connection status
   } = context;
-  
-  const [view, setView] = useState("landing");
-  const [nickname, setNickname] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [copyFeedback, setCopyFeedback] = useState(false);
 
+  const [view, setView] = useState("landing");
+  const [roomInput, setRoomInput] = useState("");
+  const [showMembers, setShowMembers] = useState(false);
+  const [nickname, setNickname] = useState("");
+  const [avatar, setAvatar] = useState("🐱");
+  const [copied, setCopied] = useState(false);
+  const [localConnected, setLocalConnected] = useState(true);
+
+  const AVATARS = ["🐱", "🐶", "🦊", "🤖", "👻", "👽", "👾", "🥷", "🧙", "🦁"];
   const API_URL = "https://equal.onrender.com";
 
-  // URL Deep Linking for Room Joins
+  const GAMES = [
+    { id: "Pong", name: "Pong", icon: "🏓", Component: Pong },
+    { id: "TicTacToe", name: "Tic Tac Toe", icon: "❌", Component: TicTacToe },
+    { id: "TapTap", name: "Tap Tap", icon: "⚡", Component: TapTap },
+    { id: "SlideRace", name: "Slider Race", icon: "🏎️", Component: SliderRace },
+    { id: "WordScramble", name: "Word Scramble", icon: "🔠", Component: WordScramble }
+  ];
+
+  // 1. Handle Join Link Logic
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("join");
     if (code && typeof setRoomId === "function") {
       setRoomId(code);
       setView("setup");
+      // Clean URL without refreshing
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, [setRoomId]);
 
-  const handleCreate = async () => {
-    if (isLoading || typeof setRoomId !== "function") return;
-    setIsLoading(true);
-    
+  // 2. Sync connection status
+  useEffect(() => {
+    if (!socket) return;
+    setLocalConnected(socket.connected);
+    socket.on("connect", () => setLocalConnected(true));
+    socket.on("disconnect", () => setLocalConnected(false));
+    return () => {
+      socket.off("connect");
+      socket.off("disconnect");
+    };
+  }, [socket]);
+
+  const handleGenerateRoom = async () => {
     try {
-      const res = await fetch(`${API_URL}/create-room`, { 
+      const res = await fetch(`${API_URL}/create-room`, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
-
-      if (!res.ok) throw new Error(`Server status: ${res.status}`);
-
+      if (!res.ok) throw new Error("Server error " + res.status);
       const data = await res.json();
-      console.log("Server Payload:", data);
-
-      // Smart Parsing: Handles roomId, room, id, or raw string
-      const finalId = data.roomId || data.room || data.id || (typeof data === 'string' ? data : null);
-
-      if (finalId) {
-        setRoomId(finalId);
+      
+      const newRoomId = data.roomId || data.room || data.id;
+      if (newRoomId && typeof setRoomId === "function") {
+        setRoomId(newRoomId);
         setView("setup");
       } else {
-        throw new Error("Could not find Room ID in server response");
+        alert("Failed to create room ID");
       }
-
     } catch (err) {
-      console.error("Connection Error:", err);
-      alert(`Room Creation Failed: ${err.message}`);
-    } finally {
-      setIsLoading(false);
+      console.error("Room creation failed:", err);
+      alert("Server is waking up. Please wait 30 seconds and try again.");
     }
   };
 
-  const handleStart = () => {
-    if (nickname.trim() && typeof joinRoom === "function") {
-      joinRoom(roomId, nickname);
+  const handleEnterChat = () => {
+    if (!nickname.trim()) return alert("Enter a nickname");
+    if (typeof joinRoom === "function") {
+      joinRoom(roomId, `${avatar} ${nickname}`);
       setView("chat");
     }
   };
 
-  const copyLink = () => {
+  const handleExitRoom = () => {
+    if (!window.confirm("Leave this room?")) return;
+    if (socket && roomId) {
+      socket.emit("leave-room", { roomId, username: `${avatar} ${nickname}` });
+    }
+    setRoomId(null);
+    setNickname("");
+    setView("landing");
+  };
+
+  const copyInviteLink = async () => {
     const url = `${window.location.origin}?join=${roomId}`;
-    navigator.clipboard.writeText(url);
-    setCopyFeedback(true);
-    setTimeout(() => setCopyFeedback(false), 2000);
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    alert("Link Copied!");
+  };
+
+  const handleReaction = (msgId, emoji) => {
+    if (socket && roomId) {
+      socket.emit("send-reaction", {
+        roomId, msgId, emoji, username: `${avatar} ${nickname}`
+      });
+    }
+  };
+
+  const renderGame = () => {
+    const game = GAMES.find(g => g.id === activeGame);
+    if (!game) return null;
+    const SelectedGame = game.Component;
+
+    return (
+      <div className="fixed inset-0 bg-black/95 z-50 flex flex-col">
+        <div className="flex justify-between items-center p-4 bg-[#111b21]">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">{game.icon}</span>
+            <span className="text-xs font-bold uppercase">{game.name}</span>
+          </div>
+          <button onClick={() => closeGame && closeGame()} className="bg-red-500/20 px-4 py-2 rounded-lg text-xs">
+            End Game
+          </button>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <Suspense fallback={<div className="text-[#25D366] font-bold">Loading Game Assets...</div>}>
+            <SelectedGame
+              socket={socket}
+              roomId={roomId}
+              scores={scores}
+              username={`${avatar} ${nickname}`}
+              opponent={opponent}
+              updateScore={updateScore}
+            />
+          </Suspense>
+        </div>
+      </div>
+    );
   };
 
   return (
-    <div className="h-screen bg-[#0b141a] text-slate-100 overflow-hidden relative font-sans selection:bg-blue-500/30">
-      
-      {/* Dynamic Background Gradients */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-[10%] -left-[10%] w-[40%] h-[40%] bg-blue-600/10 blur-[120px] rounded-full" />
-        <div className="absolute -bottom-[10%] -right-[10%] w-[40%] h-[40%] bg-indigo-600/10 blur-[120px] rounded-full" />
-      </div>
-
-      {/* Global Connection Status */}
-      {!connected && view !== "landing" && (
-        <div className="absolute top-0 w-full bg-amber-500/10 text-amber-500 py-1.5 text-[10px] text-center font-black z-50 uppercase tracking-[0.2em] backdrop-blur-md border-b border-amber-500/20">
-          Encrypted Connection Interrupted...
-        </div>
-      )}
-
-      {/* LANDING SCREEN */}
+    <div className="h-screen bg-[#0b141a] text-white flex flex-col font-sans">
+      {/* LANDING VIEW */}
       {view === "landing" && (
-        <div className="flex flex-col items-center justify-center h-full relative z-10 px-6">
-          <div className="text-center mb-12">
-            <h1 className="text-9xl font-black tracking-tighter text-white drop-shadow-2xl">
-              EQUAL<span className="text-blue-500">.</span>
-            </h1>
-            <p className="text-slate-500 font-bold uppercase tracking-[0.6em] text-[10px] mt-4">
-              End-to-End Private Messaging
-            </p>
-          </div>
-
-          <button 
-            onClick={handleCreate}
-            disabled={isLoading}
-            className="group relative bg-white text-black px-12 py-5 rounded-2xl font-black uppercase tracking-widest transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 flex items-center gap-3 overflow-hidden"
+        <div className="flex-1 flex flex-col items-center justify-center gap-6">
+          <h1 className="text-7xl font-black text-[#25D366] tracking-tighter">EQUAL</h1>
+          <button
+            onClick={handleGenerateRoom}
+            className="bg-[#25D366] px-10 py-4 rounded-2xl font-black text-black hover:scale-105 transition-transform"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-400 to-indigo-400 opacity-0 group-hover:opacity-10 transition-opacity" />
-            {isLoading ? "Negotiating..." : "Create Secure Room"}
-            <FiPlus className="group-hover:rotate-90 transition-transform" />
+            Create Private Room
           </button>
+          <div className="flex gap-2">
+            <input
+              value={roomInput}
+              onChange={(e) => setRoomInput(e.target.value)}
+              placeholder="Room Code"
+              className="bg-white/5 p-4 rounded-xl border border-white/10 outline-none focus:border-[#25D366]"
+            />
+            <button
+              onClick={() => { if(roomInput) { setRoomId(roomInput); setView("setup"); } }}
+              className="bg-slate-700 px-8 rounded-xl font-bold"
+            >
+              Join
+            </button>
+          </div>
         </div>
       )}
 
-      {/* IDENTITY SETUP SCREEN */}
+      {/* SETUP VIEW */}
       {view === "setup" && (
-        <div className="flex flex-col items-center justify-center h-full p-6 relative z-10">
-          <div className="bg-white/5 border border-white/10 p-10 rounded-[3rem] w-full max-w-sm backdrop-blur-2xl shadow-2xl animate-in fade-in slide-in-from-bottom-10 duration-700">
-            <div className="w-20 h-20 bg-blue-600 mx-auto mb-8 rounded-3xl flex items-center justify-center shadow-lg shadow-blue-500/20 text-3xl font-black">
-              {nickname ? nickname.charAt(0).toUpperCase() : "?"}
+        <div className="flex-1 flex items-center justify-center">
+          <div className="bg-[#111b21] p-10 rounded-[40px] w-full max-w-sm border border-white/5 shadow-2xl">
+            <h2 className="text-center text-xs font-black uppercase tracking-widest mb-8 text-slate-500">Identity</h2>
+            <div className="flex gap-3 overflow-x-auto pb-4 mb-6 custom-scrollbar">
+              {AVATARS.map(a => (
+                <button
+                  key={a}
+                  onClick={() => setAvatar(a)}
+                  className={`text-3xl p-4 rounded-2xl transition-all ${avatar === a ? "bg-[#25D366] scale-110 shadow-lg shadow-[#25D366]/20" : "bg-white/5 hover:bg-white/10"}`}
+                >
+                  {a}
+                </button>
+              ))}
             </div>
-            <h2 className="text-center text-[10px] font-black uppercase tracking-[0.4em] mb-8 text-slate-400">Identify Yourself</h2>
-            <input 
+            <input
               value={nickname}
               onChange={(e) => setNickname(e.target.value)}
-              placeholder="YOUR ALIAS"
-              className="w-full bg-black/40 border border-white/5 p-5 rounded-2xl mb-6 text-center font-bold text-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:opacity-20"
+              placeholder="Nickname"
+              className="w-full bg-black/40 p-5 rounded-2xl mb-6 text-center font-bold text-xl outline-none border border-white/5 focus:border-[#25D366]"
             />
-            <button 
-              onClick={handleStart} 
-              className="w-full bg-blue-600 hover:bg-blue-500 py-5 rounded-2xl font-black uppercase tracking-widest transition-all shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+            <button
+              onClick={handleEnterChat}
+              className="w-full bg-[#25D366] py-5 rounded-2xl text-black font-black uppercase tracking-widest shadow-lg shadow-[#25D366]/20"
             >
-              Start Session <FiArrowRight />
+              Enter Chat
             </button>
           </div>
         </div>
       )}
 
-      {/* MAIN CHAT INTERFACE */}
+      {/* CHAT VIEW */}
       {view === "chat" && (
-        <div className="flex flex-col h-full relative z-10">
-          <header className="bg-[#111b21]/60 backdrop-blur-xl p-5 flex justify-between items-center border-b border-white/5">
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                <div className="w-11 h-11 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-2xl flex items-center justify-center font-black text-xl shadow-lg">
-                  {nickname.charAt(0).toUpperCase()}
-                </div>
-                <div className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-[3px] border-[#0b141a] ${connected ? 'bg-emerald-500' : 'bg-rose-500 animate-pulse'}`} />
-              </div>
-              <div>
-                <div className="text-sm font-black uppercase flex gap-2 items-center tracking-tight">
-                  {nickname} <FiShield size={14} className="text-blue-500"/>
-                </div>
-                <div className="text-[10px] text-slate-500 font-bold uppercase tracking-widest flex items-center gap-2">
-                  ID: {roomId}
-                  <button onClick={copyLink} className="hover:text-white transition-colors">
-                    <FiShare2 size={10} className={copyFeedback ? "text-emerald-400" : ""}/>
-                  </button>
+        <div className="flex flex-1 relative overflow-hidden">
+          <div className="flex flex-col flex-1">
+            <header className="bg-[#111b21] p-4 flex justify-between items-center border-b border-white/5">
+              <div className="flex items-center gap-3">
+                <span className="text-3xl drop-shadow-md">{avatar}</span>
+                <div>
+                  <div className="text-sm font-black text-[#25D366] flex gap-1 items-center uppercase tracking-tight">
+                    {nickname} <FiShield size={12} />
+                  </div>
+                  <div className="text-[9px] text-slate-500 font-bold">ROOM {roomId}</div>
                 </div>
               </div>
+              <div className="flex gap-2">
+                <button onClick={copyInviteLink} className="p-3 bg-white/5 rounded-xl hover:bg-white/10 transition-colors">
+                  <FiShare2 />
+                </button>
+                <button onClick={() => setShowMembers(!showMembers)} className="p-3 bg-white/5 rounded-xl flex gap-2 items-center hover:bg-white/10">
+                  <FiUsers />
+                  <span className="text-xs font-black">{users?.length || 1}</span>
+                </button>
+                <button onClick={handleExitRoom} className="p-3 bg-red-500/10 text-red-400 rounded-xl hover:bg-red-500 hover:text-white transition-all">
+                  <FiLogOut />
+                </button>
+              </div>
+            </header>
+
+            <div className="flex-1 overflow-hidden relative">
+              <Chat onReact={handleReaction} />
             </div>
 
-            <div className="flex gap-3">
-              <div className="bg-white/5 px-4 py-2 rounded-xl flex items-center gap-3 border border-white/5">
-                <FiUsers className="text-blue-400" size={16}/> 
-                <span className="text-xs font-black">{users.length}</span>
-              </div>
-              <button 
-                onClick={() => window.location.reload()} 
-                className="p-3 bg-rose-500/10 text-rose-500 hover:bg-rose-500 hover:text-white rounded-xl transition-all border border-rose-500/10"
-              >
-                <FiLogOut size={20}/>
-              </button>
+            <div className="bg-[#111b21] p-3 flex gap-2 overflow-x-auto border-t border-white/5">
+              {GAMES.map(game => (
+                <button
+                  key={game.id}
+                  onClick={() => sendGameRequest && sendGameRequest(game.id)}
+                  className="bg-white/5 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 hover:bg-white/10 whitespace-nowrap border border-white/5"
+                >
+                  <span className="text-lg">{game.icon}</span> {game.name}
+                </button>
+              ))}
             </div>
-          </header>
-          
-          <div className="flex-1 overflow-hidden">
-            <Chat />
           </div>
+
+          {/* SIDEBAR */}
+          <aside className={`fixed right-0 top-0 h-full w-72 bg-[#0e161b] z-50 transform transition-transform duration-300 ease-in-out border-l border-white/5 ${showMembers ? "translate-x-0 shadow-2xl" : "translate-x-full"}`}>
+            <div className="flex justify-between items-center p-6 border-b border-white/5">
+              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">Online Users</span>
+              <button onClick={() => setShowMembers(false)} className="p-2 hover:bg-white/5 rounded-lg"><FiX /></button>
+            </div>
+            <div className="p-4 space-y-3 overflow-y-auto h-[calc(100%-80px)]">
+              {users?.map((u, i) => {
+                const parts = u.split(" ");
+                const uAvatar = parts[0];
+                const uName = parts.slice(1).join(" ");
+                return (
+                  <div key={i} className="flex items-center gap-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                    <span className="text-2xl">{uAvatar}</span>
+                    <span className="text-sm font-bold truncate">
+                      {uName} {uName === nickname && <span className="text-[#25D366] text-[10px] ml-1">(YOU)</span>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+
+          {showMembers && <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity" onClick={() => setShowMembers(false)} />}
         </div>
       )}
 
-      {/* FULLSCREEN GAME MODAL */}
-      {activeGame && (
-        <div className="fixed inset-0 bg-black/98 z-[1000] flex flex-col p-4 backdrop-blur-3xl animate-in fade-in zoom-in duration-300">
-          <div className="flex justify-between items-center mb-6 px-4">
-            <div className="flex items-center gap-3">
-               <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
-               <span className="text-[11px] font-black uppercase tracking-[0.4em] text-slate-400">Live {activeGame} Match</span>
-            </div>
-            <button 
-              onClick={() => closeGame && closeGame()} 
-              className="bg-white text-black px-6 py-2.5 rounded-xl font-black text-[10px] uppercase hover:bg-rose-500 hover:text-white transition-all shadow-xl shadow-white/5"
-            >
-              Terminate Session
-            </button>
-          </div>
-          <div className="flex-1 flex items-center justify-center border border-white/5 rounded-[3rem] bg-black/40 overflow-hidden relative">
-            <Suspense fallback={<div className="font-black text-blue-500 animate-pulse tracking-widest uppercase text-xs">Synchronizing Game State...</div>}>
-              {activeGame === "Pong" && <Pong socket={socket} roomId={roomId} scores={scores} username={username} />}
-              {activeGame === "TicTacToe" && <TicTacToe socket={socket} roomId={roomId} scores={scores} username={username} />}
-            </Suspense>
-          </div>
-        </div>
-      )}
+      {activeGame && renderGame()}
     </div>
   );
 }
