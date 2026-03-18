@@ -78,10 +78,8 @@ function App() {
   /* ================= CREATE ROOM ================= */
   const handleGenerateRoom = async () => {
     try {
-      const res = await fetch(`${API_URL}/create-room`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
+      const res = await fetch(`${API_URL}/create-room`
+      );
 
       if (!res.ok) throw new Error("Server error");
 
