@@ -1,10 +1,10 @@
 import {
-  createContext,
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
+  createContext,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
 } from "react";
 import { io } from "socket.io-client";
 import { v4 as uuidv4 } from "uuid";
@@ -14,215 +14,257 @@ export const ChatContext = createContext(null);
 const SOCKET_URL = "https://equal.onrender.com";
 
 export const ChatProvider = ({ children }) => {
-  const socketRef = useRef(null);
-  const typingTimeoutRef = useRef(null);
+  const socketRef = useRef(null);
 
-  /* ==========================
-      IDENTITY & CHAT STATE 
-  ========================== */
-  const [username, setUsername] = useState("");
-  const [roomId, setRoomId] = useState(null);
-  const [users, setUsers] = useState([]);
-  const [opponent, setOpponent] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [typingUser, setTypingUser] = useState(null);
-  const [connected, setConnected] = useState(false);
+  /* ==========================
+      IDENTITY STATE 
+  ========================== */
+  const [username, setUsername] = useState("");
+  const [roomId, setRoomId] = useState(null);
+  const [users, setUsers] = useState([]);
+  const [opponent, setOpponent] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [typingUser, setTypingUser] = useState(null);
+  const typingTimeoutRef = useRef(null);
 
-  /* ==========================
-      GAME & PERSISTENCE
-  ========================== */
-  const [activeGame, setActiveGame] = useState(null);
-  const [activeGameRequest, setActiveGameRequest] = useState(null);
-  const [scores, setScores] = useState({});
-  const [leaderboard, setLeaderboard] = useState({});
-  const [streak, setStreak] = useState({ lastWinner: null, count: 0 });
-  const [myStickers] = useState(() => {
-    try {
-      const saved = localStorage.getItem("custom_stickers");
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
-  });
+  /* ==========================
+      STICKERS (Persistence)
+  ========================== */
+  const [myStickers, setMyStickers] = useState(() => {
+    try {
+      const saved = localStorage.getItem("custom_stickers");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
 
-  /* ==========================
-      SOCKET INITIALIZATION
-  ========================== */
-  useEffect(() => {
-    const socket = io(SOCKET_URL, {
-      transports: ["websocket"],
-      withCredentials: true,
-      reconnection: true,
-      reconnectionAttempts: 10,
-    });
+  /* ==========================
+      GAME STATE
+  ========================== */
+  const [activeGame, setActiveGame] = useState(null);
+  const [activeGameRequest, setActiveGameRequest] = useState(null); // New: For the invite toast
+  const [scores, setScores] = useState({});
+  const [leaderboard, setLeaderboard] = useState({});
+  const [streak, setStreak] = useState({ lastWinner: null, count: 0 });
+  const [settings, setSettings] = useState({ winTarget: 10 });
 
-    socketRef.current = socket;
+  /* ==========================
+      SOCKET INIT & CLEANUP
+  ========================== */
+  useEffect(() => {
+    socketRef.current = io(SOCKET_URL, {
+      transports: ["websocket"],
+      withCredentials: true,
+      reconnection: true,
+      reconnectionAttempts: 10,
+    });
 
-    // Monitor Connection Status
-    socket.on("connect", () => {
-      console.log("Connected to server:", socket.id);
-      setConnected(true);
-    });
+    const handleBeforeUnload = () => {
+      if (socketRef.current && roomId) {
+        socketRef.current.emit("leave-room", { roomId, username });
+      }
+    };
 
-    socket.on("disconnect", () => {
-      console.log("Disconnected from server");
-      setConnected(false);
-    });
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      socketRef.current?.disconnect();
+    };
+  }, [roomId, username]);
 
-    // Message Handlers
-    socket.on("receive-message", (msg) => {
-      setMessages((prev) => {
-        if (prev.find((m) => m.id === msg.id)) return prev;
-        return [...prev, msg];
-      });
-    });
+  const socket = socketRef.current;
 
-    socket.on("update-reactions", ({ msgId, reactions }) => {
-      setMessages((prev) =>
-        prev.map((m) => (m.id === msgId ? { ...m, reactions } : m))
-      );
-    });
+  /* ==========================
+      REACTION LOGIC (Optimistic)
+  ========================== */
+  const handleReaction = useCallback((msgId, emoji) => {
+    if (!roomId || !socketRef.current) return;
 
-    // User & Presence Handlers
-    socket.on("online-users", setUsers);
-    socket.on("user-typing", ({ username: name }) => {
-      if (name !== username) setTypingUser(name);
-    });
-    socket.on("user-stop-typing", () => setTypingUser(null));
+    // Send to server
+    socketRef.current.emit("message-reaction", { roomId, msgId, emoji, username });
 
-    // Game Handlers
-    socket.on("game-requested", (req) => {
-      setActiveGameRequest(req);
-    });
+    // Update locally immediately (Optimistic UI)
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.id !== msgId) return msg;
+        const currentReactions = msg.reactions || [];
+        const existing = currentReactions.find((r) => r.emoji === emoji);
 
-    socket.on("game-started", (gameId) => {
-      setActiveGame(gameId);
-      setActiveGameRequest(null);
-    });
+        let newReactions;
+        if (existing) {
+          const hasReacted = existing.users?.includes(username);
+          newReactions = currentReactions.map((r) => {
+            if (r.emoji !== emoji) return r;
+            return {
+              ...r,
+              count: hasReacted ? r.count - 1 : r.count + 1,
+              users: hasReacted 
+                ? r.users.filter((u) => u !== username) 
+                : [...(r.users || []), username],
+            };
+          }).filter(r => r.count > 0);
+        } else {
+          newReactions = [...currentReactions, { emoji, count: 1, users: [username] }];
+        }
+        return { ...msg, reactions: newReactions };
+      })
+    );
+  }, [roomId, username]);
 
-    socket.on("game-closed", () => {
-      setActiveGame(null);
-      setScores({});
-    });
+  /* ==========================
+      MESSAGING LOGIC
+  ========================== */
+  const sendMessage = useCallback(
+    (content, type = "text", metadata = {}) => {
+      if (!content || !roomId || !socketRef.current) return;
 
-    socket.on("score-updated", setScores);
-    socket.on("leaderboard-updated", (data) => {
-      setLeaderboard(data.leaderboard || {});
-      setStreak(data.streak || { lastWinner: null, count: 0 });
-    });
+      const messageData = {
+        id: uuidv4(),
+        roomId,
+        username,
+        content,
+        type,
+        metadata,
+        reactions: [], // Initialize reactions array
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
 
-    return () => {
-      clearTimeout(typingTimeoutRef.current);
-      socket.disconnect();
-    };
-  }, [username]); // Reload listeners if identity changes
+      setMessages((prev) => [...prev, messageData]);
+      socketRef.current.emit("send-message", messageData);
+    },
+    [roomId, username]
+  );
 
-  /* ==========================
-      ACTIONS & HELPERS
-  ========================= */
-  const joinRoom = useCallback((id, name) => {
-    setMessages([]);
-    setRoomId(id);
-    setUsername(name);
-    socketRef.current?.emit("join-room", { roomId: id, username: name });
-  }, []);
+  const handleTyping = useCallback(() => {
+    if (!roomId || !socketRef.current) return;
+    socketRef.current.emit("typing", { roomId, username });
 
-  const leaveRoom = useCallback(() => {
-    if (socketRef.current && roomId) {
-      socketRef.current.emit("leave-room", { roomId, username });
-      setRoomId(null);
-      setUsername("");
-      setMessages([]);
-    }
-  }, [roomId, username]);
+    clearTimeout(typingTimeoutRef.current);
+    typingTimeoutRef.current = setTimeout(() => {
+      socketRef.current.emit("stop-typing", { roomId, username });
+    }, 1500);
+  }, [roomId, username]);
 
-  const sendMessage = useCallback((content, type = "text", metadata = {}) => {
-    if (!content || !roomId || !socketRef.current) return;
+  /* ==========================
+      GAME ACTIONS
+  ========================== */
+  const sendGameRequest = (gameId) => {
+    if (!roomId || !socketRef.current) return;
+    // Emit "request" instead of "start" to trigger the toast for the other user
+    socketRef.current.emit("request-game", { roomId, gameId, sender: username });
+  };
 
-    const messageData = {
-      id: uuidv4(),
-      roomId,
-      username,
-      content,
-      type,
-      metadata,
-      reactions: [],
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
+  const acceptGameRequest = () => {
+    if (!activeGameRequest || !socketRef.current) return;
+    socketRef.current.emit("start-game", { roomId, gameId: activeGameRequest.gameId });
+    setActiveGameRequest(null);
+  };
 
-    setMessages((prev) => [...prev, messageData]);
-    socketRef.current.emit("send-message", messageData);
-  }, [roomId, username]);
+  const declineGameRequest = () => setActiveGameRequest(null);
 
-  const handleReaction = useCallback((msgId, emoji) => {
-    if (!roomId || !socketRef.current) return;
-    
-    // Emit to server
-    socketRef.current.emit("message-reaction", { roomId, msgId, emoji, username });
+  const updateScore = (winnerName) => {
+    if (!roomId || !socketRef.current) return;
+    socketRef.current.emit("update-score", { roomId, username: winnerName });
+  };
 
-    // Optimistic UI Update
-    setMessages((prev) =>
-      prev.map((msg) => {
-        if (msg.id !== msgId) return msg;
-        const reactions = [...(msg.reactions || [])];
-        const idx = reactions.findIndex((r) => r.emoji === emoji);
+  const resetScores = useCallback(() => {
+    if (!roomId || !socketRef.current) return;
+    socketRef.current.emit("reset-scores", { roomId });
+  }, [roomId]);
 
-        if (idx > -1) {
-          const hasReacted = reactions[idx].users?.includes(username);
-          reactions[idx] = {
-            ...reactions[idx],
-            count: hasReacted ? reactions[idx].count - 1 : reactions[idx].count + 1,
-            users: hasReacted 
-              ? reactions[idx].users.filter(u => u !== username) 
-              : [...reactions[idx].users, username]
-          };
-        } else {
-          reactions.push({ emoji, count: 1, users: [username] });
-        }
-        return { ...msg, reactions: reactions.filter(r => r.count > 0) };
-      })
-    );
-  }, [roomId, username]);
+  const closeGame = () => {
+    if (!roomId || !socketRef.current) return;
+    socketRef.current.emit("leave-game", { roomId });
+    setActiveGame(null);
+  };
 
-  const handleTyping = useCallback(() => {
-    if (!roomId || !socketRef.current) return;
-    socketRef.current.emit("typing", { roomId, username });
-    clearTimeout(typingTimeoutRef.current);
-    typingTimeoutRef.current = setTimeout(() => {
-      socketRef.current.emit("stop-typing", { roomId, username });
-    }, 1500);
-  }, [roomId, username]);
+  /* ==========================
+      SOCKET LISTENERS
+  ========================== */
+  useEffect(() => {
+    if (!socketRef.current) return;
+    const s = socketRef.current;
 
-  // Game Logic
-  const sendGameRequest = (gameId) => socketRef.current?.emit("request-game", { roomId, gameId, sender: username });
-  const acceptGameRequest = () => {
-    if (!activeGameRequest) return;
-    socketRef.current?.emit("start-game", { roomId, gameId: activeGameRequest.gameId });
-    setActiveGameRequest(null);
-  };
-  const declineGameRequest = () => setActiveGameRequest(null);
-  const updateScore = (winner) => socketRef.current?.emit("update-score", { roomId, username: winner });
-  const closeGame = () => {
-    socketRef.current?.emit("leave-game", { roomId });
-    setActiveGame(null);
-  };
+    s.on("receive-message", (msg) => {
+      if (msg.username !== username) setMessages((prev) => [...prev, msg]);
+    });
 
-  useEffect(() => {
-    const other = users.find((u) => u !== username);
-    setOpponent(other || null);
-  }, [users, username]);
+    s.on("update-reactions", ({ msgId, reactions }) => {
+      setMessages((prev) => prev.map(m => m.id === msgId ? { ...m, reactions } : m));
+    });
 
-  /* ==========================
-      CONTEXT VALUE
-  ========================== */
-  const value = useMemo(() => ({
-    username, roomId, messages, users, opponent, typingUser, connected,
-    activeGame, activeGameRequest, scores, leaderboard, streak, myStickers,
-    socket: socketRef.current, joinRoom, leaveRoom, sendMessage, 
-    handleReaction, handleTyping, sendGameRequest, acceptGameRequest, 
-    declineGameRequest, updateScore, closeGame
-  }), [
-    username, roomId, messages, users, opponent, typingUser, connected,
-    activeGame, activeGameRequest, scores, leaderboard, streak, myStickers
-  ]);
+    s.on("game-requested", (request) => {
+      if (request.sender !== username) setActiveGameRequest(request);
+    });
 
-  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
+    s.on("online-users", setUsers);
+
+    s.on("user-typing", ({ username: name }) => {
+      if (name !== username) setTypingUser(name);
+    });
+
+    s.on("user-stop-typing", () => setTypingUser(null));
+    s.on("game-started", (gameId) => {
+      setActiveGame(gameId);
+      setActiveGameRequest(null);
+    });
+
+    s.on("game-closed", () => {
+      setActiveGame(null);
+      setScores({});
+    });
+
+    s.on("score-updated", setScores);
+    s.on("scores-reset-confirmed", setScores);
+    s.on("leaderboard-updated", (data) => {
+      setLeaderboard(data.leaderboard || {});
+      setStreak(data.streak || { lastWinner: null, count: 0 });
+    });
+
+    return () => {
+      s.off("receive-message");
+      s.off("update-reactions");
+      s.off("game-requested");
+      s.off("online-users");
+      s.off("user-typing");
+      s.off("user-stop-typing");
+      s.off("game-started");
+      s.off("game-closed");
+      s.off("score-updated");
+      s.off("leaderboard-updated");
+    };
+  }, [username]);
+
+  /* ==========================
+      ROOM HELPERS
+  ========================== */
+  const joinRoom = useCallback((id, name) => {
+    setMessages([]);
+    setRoomId(id);
+    setUsername(name);
+    socketRef.current.emit("join-room", { roomId: id, username: name });
+  }, []);
+
+  const leaveRoom = useCallback(() => {
+    if (socketRef.current && roomId) {
+      socketRef.current.emit("leave-room", { roomId, username });
+      setRoomId(null); setUsername(""); setUsers([]); setMessages([]);
+    }
+  }, [roomId, username]);
+
+  useEffect(() => {
+    const other = users.find((u) => u !== username);
+    setOpponent(other || null);
+  }, [users, username]);
+
+  /* ==========================
+      CONTEXT VALUE
+  ========================== */
+  const value = useMemo(() => ({
+    username, roomId, setRoomId, messages, users, opponent, typingUser,
+    activeGame, activeGameRequest, scores, leaderboard, streak, settings, myStickers,
+    socket, joinRoom, leaveRoom, sendMessage, handleReaction, handleTyping,
+    sendGameRequest, acceptGameRequest, declineGameRequest, updateScore, closeGame, resetScores
+  }), [username, roomId, messages, users, opponent, typingUser, activeGame, activeGameRequest, scores, leaderboard, streak, myStickers]);
+
+  return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 };
